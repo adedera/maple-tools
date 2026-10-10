@@ -1811,6 +1811,8 @@ function shortStat(k){ return ({mainStatPct:'ステ%',allStatPct:'オール%',ma
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function pct(v){ return (v*100).toFixed(v*100<1?2:1)+'%'; }
 function p2(v){ return (v>=0?'+':'') + v.toFixed(2) + '%'; }
+/* 炎1個あたりのように小さい値用。2桁だと全部 +0.00% になって並び順が見えない。 */
+function p4(v){ return (v>=0?'+':'') + v.toFixed(v!==0 && Math.abs(v)<0.1 ? 4 : 2) + '%'; }
 function mel(v){
   v = +v||0;
   if(!isFinite(v)) return '—';
@@ -1863,6 +1865,16 @@ function candGroups(){
 function bestOf(list){
   const own = S.ui.mode==='own';
   return (list||[]).find(c=>S.ui.kinds[c.kind] && (own ? c.free : !c.free)) || null;
+}
+/* 「手持ちの炎」モードでも、メルで買う手（スタフォ・潜在）を横に並べて見比べられるようにする。
+   並びは炎の効率順なので、こちらは1Gあたりが一番いいものを自分で探す。 */
+function bestMelOf(list){
+  let b = null;
+  (list||[]).forEach(c=>{
+    if(!S.ui.kinds[c.kind] || c.free || c.kind==='flame') return;
+    if(!b || (c.eff||0) > (b.eff||0)) b = c;
+  });
+  return b;
 }
 function tagOf(k){ return k==='sf' ? '<span class="tag sf">スタフォ</span>'
   : k==='pot' ? '<span class="tag pot">潜在</span>' : '<span class="tag fl">転生</span>'; }
@@ -1939,6 +1951,7 @@ function renderGrid(){
   const head = '<tr><th>部位</th><th>装備</th><th class="num">★</th><th class="num">潜在</th>'
     +'<th class="num">アディ</th><th class="num">転生</th><th>次の一手</th>'
     + (own ? '<th class="num">個数</th><th class="num">1個あたり</th><th class="num">手持ちで届く</th>'
+             + '<th>メルで買う手（スタフォ・潜在）</th>'
            : '<th class="num">かかるメル</th><th class="num">1Gあたり</th>'
              + (bud>0 ? '<th class="num">累計</th><th class="num">届く確率</th>' : ''))
     + '</tr>';
@@ -1946,7 +1959,7 @@ function renderGrid(){
   let sumC=0, sumG=0, body='';
   list.forEach(sl=>{
     const it = ch.gear[sl.k], open = (S.ui.open===sl.k), b = best[sl.k];
-    const cols = own ? 10 : (bud>0 ? 11 : 9);
+    const cols = own ? 11 : (bud>0 ? 11 : 9);
     if(!it){
       body += '<tr class="row vacant" data-slot="'+sl.k+'"><td><span class="twist">›</span> '+sl.n
         +'<span class="cat">'+sl.c+'</span></td><td colspan="'+(cols-1)+'">＋ ここに登録する</td></tr>';
@@ -1968,13 +1981,20 @@ function renderGrid(){
                  : '武器は攻撃力の段階で見る。段階7が最高（韓国で言う1추）。'
                  + '段階5で妥協、6で合格、7で大当たり');
     let tail = '';
-    if(b){
+    if(own){
+      // 炎の手（無ければ空欄）と、メルで買う手を並べる
+      const bm = bestMelOf(groups[sl.k]);
+      const dash = '<span style="color:var(--faint)">—</span>';
+      tail = '<td>'+(b ? tagOf(b.kind)+' '+esc(b.label) : dash)+'</td>'
+        + '<td class="num">'+(b ? cnt(b.units)+'<span class="sub">中央 '+cnt(medTries(b.p))+'</span>' : dash)+'</td>'
+        + '<td class="num eff">'+(b ? p4(b.perGain) : dash)+'</td>'
+        + '<td class="num">'+(b ? pct(1-Math.pow(1-b.p, b.own))+'<span class="sub">手持ち '+b.own+'個</span>' : dash)+'</td>'
+        + '<td>'+(bm ? tagOf(bm.kind)+' '+esc(bm.label)
+            +'<span class="sub">'+mel(bm.cost)+'　<b style="color:var(--accent);font-weight:700">'
+            +p2(bm.eff)+'</b> 1Gあたり</span>' : dash)+'</td>';
+    }else if(b){
       tail = '<td>'+tagOf(b.kind)+' '+esc(b.label)+'</td>';
-      if(own){
-        tail += '<td class="num">'+cnt(b.units)+'<span class="sub">中央 '+cnt(medTries(b.p))+'</span></td>'
-          + '<td class="num eff">'+p2(b.perGain)+'</td>'
-          + '<td class="num">'+pct(1-Math.pow(1-b.p, b.own))+'<span class="sub">手持ち '+b.own+'個</span></td>';
-      }else{
+      {
         tail += '<td class="num">'+mel(b.cost)
           + (b.extra && b.extra.destroy>0.005 ? '<span class="sub">破壊 '+b.extra.destroy.toFixed(2)+'回</span>':'')
           + '</td><td class="num eff">'+p2(b.eff)+'</td>';
