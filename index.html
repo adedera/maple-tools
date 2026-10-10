@@ -1745,13 +1745,22 @@ function flameScore(fl){
        + (+f.atk||0)*(+w.atk||0) + (+f.allStatPct||0)*(+w.allStatPct||0)
        + (+f.bossDmg||0)*(+w.bossDmg||0) + (+f.dmg||0)*(+w.dmg||0);
 }
-/* そのレベルで「これくらいは欲しい」とされる目安。
-   韓国で言う「국민추옵(国民追オプ)」。namu.wikiの記述。150製=110～120、250=180。 */
-function flameStd(lv){ lv = +lv||0;
-  return lv>=250 ? 180 : lv>=200 ? 155 : lv>=160 ? 125 : lv>=150 ? 115 : 0; }
-/* 「国民○級」という言い方は日本では伝わらないので、言葉にする。
-   目安の 0.8 / 1.0 / 1.2 倍で区切る。実質の上限が目安の 1.25～1.35 倍辺りなので、
-   1.2倍以上は段階がほぼ最高でないと出ない。 */
+/* そのレベルで「これくらいは欲しい」とされる目安。[妥協, 合格, 大当たり] の点数。
+
+   ボス装備は韓国で言う「국민추옵(国民追オプ)」の数字（namu.wiki。150製=110〜120、250=180）を
+   合格とし、その 0.8 / 1.2 倍で妥協と大当たりを切っている。
+
+   非ボス装備は公表された目安が無い。ボスのような段階+2も4行固定も無いので、
+   同じ土俵では比べられない（Lv200で上限165点 対 231点、平均12.4点 対 45.1点）。
+   そこで「永遠の転生の炎1回で出る点数の分布」を厳密に数えて、上位10% / 2% / 0.5% で切った。
+   Lv200なら平均10個 / 53個 / 235個ぶんの厳選にあたる。数え方と検算は 転生の炎_データ.md。 */
+function flameStd(lv, boss){
+  lv = +lv||0;
+  if(boss) return lv>=250 ? [144,180,216] : lv>=200 ? [124,155,186]
+         : lv>=160 ? [100,125,150] : lv>=150 ? [92,115,138] : null;
+  return   lv>=250 ? [37,59,77]   : lv>=200 ? [35,55,69]
+         : lv>=160 ? [31,49,61]   : lv>=150 ? [31,45,57]   : null;
+}
 /* 武器は級数の目安が使えない（攻撃力×4 で桁が変わるし、素の攻撃力でも変わる）。
    かわりに「攻撃力の行が何段階か」で語られる。韓国で言う 1추(段階7)～5추(段階3)。
    戻り値: 1～7=その段階 / 0=攻撃力の行がない / -1=どの段階とも合わない / null=純粋攻撃力が未入力 */
@@ -1770,13 +1779,13 @@ function weaponRank(t){
   if(t>=5) return {n:'妥協',       c:'var(--warn)',   b:0};
   return          {n:'要厳選',     c:'var(--faint)',  b:0};
 }
+/* 「国民○点」という言い方は日本では伝わらないので、言葉にする。 */
 function flameRank(score, std){
-  if(!(std>0)) return null;
-  const r = score/std;
-  if(r >= 1.2) return {n:'大当たり', c:'var(--accent)', b:1};
-  if(r >= 1.0) return {n:'合格',       c:'var(--ok)',     b:0};
-  if(r >= 0.8) return {n:'妥協',       c:'var(--warn)',   b:0};
-  return          {n:'要厳選',     c:'var(--faint)',  b:0};
+  if(!std) return null;
+  if(score >= std[2]) return {n:'大当たり', c:'var(--accent)', b:1};
+  if(score >= std[1]) return {n:'合格',     c:'var(--ok)',     b:0};
+  if(score >= std[0]) return {n:'妥協',     c:'var(--warn)',   b:0};
+  return                     {n:'要厳選',   c:'var(--faint)',  b:0};
 }
 
 /* 一覧に出す潜在の合計。同じ種類の行を足して短く書く。上潜在＋アディ。 */
@@ -1946,14 +1955,15 @@ function renderGrid(){
     const p = sumLines(it.pot,conv), ad = sumLines(it.add,conv), f = itemFlame(it,conv);
     const ps = potSum(it.pot), as = potSum(it.add), fs = flameScore(it.flame);
     // 「国民転生」の目安は防具・装飾品の話。武器は攻撃力分で桁が変わるので比べない。
-    const std = (it.canFl && sl.c !== '武器') ? flameStd(it.lv) : 0;
+    const std = (it.canFl && sl.c !== '武器') ? flameStd(it.lv, it.isBoss) : null;
     // 防具・装飾品は級数、武器は攻撃力の段階で評価する。
     const wt = (it.canFl && sl.c === '武器') ? weaponTier(it) : null;
     const rk = (wt===null) ? flameRank(fs, std) : weaponRank(wt);
     const rkNote = (wt===null) ? '' : (wt>0 ? '段階'+wt+' ' : wt===0 ? '攻撃力なし ' : '');
     const rkTip = (wt===null)
-      ? (std ? 'Lv'+(+it.lv||0)+'の目安：'+Math.round(std*0.8)+'点未満で要厳選、'
-             + Math.round(std)+'点で合格、'+Math.round(std*1.2)+'点以上で大当たり' : '')
+      ? (std ? 'Lv'+(+it.lv||0)+'の'+(it.isBoss?'ボス装備':'非ボス装備')+'の目安：'
+             + std[0]+'点で妥協、'+std[1]+'点で合格、'+std[2]+'点以上で大当たり'
+             + (it.isBoss?'':'（非ボスは段階+2が無いのでボスとは桁が違う）') : '')
       : (wt===-1 ? '今の攻撃力はどの段階とも合わない。純粋攻撃力か転生の値を見直す'
                  : '武器は攻撃力の段階で見る。段階7が最高（韓国で言う1추）。'
                  + '段階5で妥協、6で合格、7で大当たり');
