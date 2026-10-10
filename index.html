@@ -1552,9 +1552,21 @@ function flameScore(fl){
        + (+f.atk||0)*(+w.atk||0) + (+f.allStatPct||0)*(+w.allStatPct||0)
        + (+f.bossDmg||0)*(+w.bossDmg||0) + (+f.dmg||0)*(+w.dmg||0);
 }
-/* そのレベルで「国民転生」と言われる目安。namu.wikiの記述。150製=110～120、250=180。 */
+/* そのレベルで「これくらいは欲しい」とされる目安。
+   韓国で言う「국민추옵(国民追オプ)」。namu.wikiの記述。150製=110～120、250=180。 */
 function flameStd(lv){ lv = +lv||0;
   return lv>=250 ? 180 : lv>=200 ? 155 : lv>=160 ? 125 : lv>=150 ? 115 : 0; }
+/* 「国民○級」という言い方は日本では伝わらないので、言葉にする。
+   目安の 0.8 / 1.0 / 1.2 倍で区切る。実質の上限が目安の 1.25～1.35 倍辺りなので、
+   1.2倍以上は段階がほぼ最高でないと出ない。 */
+function flameRank(score, std){
+  if(!(std>0)) return null;
+  const r = score/std;
+  if(r >= 1.2) return {n:'大当たり', c:'var(--accent)', b:1};
+  if(r >= 1.0) return {n:'合格',       c:'var(--ok)',     b:0};
+  if(r >= 0.8) return {n:'妥協',       c:'var(--warn)',   b:0};
+  return          {n:'要厳選',     c:'var(--faint)',  b:0};
+}
 
 /* 一覧に出す潜在の合計。同じ種類の行を足して短く書く。上潜在＋アディ。 */
 const POTSHORT = {mainStatPct:['主','%'], allStatPct:['全','%'], mainStat:['主',''],
@@ -1722,6 +1734,7 @@ function renderGrid(){
     const ps = potSum(it), fs = flameScore(it.flame);
     // 「国民転生」の目安は防具・装飾品の話。武器は攻撃力分で桁が変わるので比べない。
     const std = (it.canFl && sl.c !== '武器') ? flameStd(it.lv) : 0;
+    const rk = flameRank(fs, std);
     let tail = '';
     if(b){
       tail = '<td>'+tagOf(b.kind)+' '+esc(b.label)+'</td>';
@@ -1753,7 +1766,12 @@ function renderGrid(){
       +'<td class="num" style="color:var(--pot)">'+(p?p2(p):'—')
         + (ps ? '<span class="sub">'+esc(ps)+'</span>' : '')+'</td>'
       +'<td class="num" style="color:var(--fl)">'+(f?p2(f):'—')
-        + (fs ? '<span class="sub">'+Math.round(fs)+'級'+(std?' / 国民'+std:'')+'</span>' : '')
+        + (fs ? '<span class="sub"'+(rk?' title="Lv'+(+it.lv||0)+'の目安：'
+              +Math.round(std*0.8)+'級未満で要厳選、'+Math.round(std)+'級で合格、'
+              +Math.round(std*1.2)+'級以上で大当たり"':'')+'>'
+              +Math.round(fs)+'級'
+              +(rk?' <b style="color:'+rk.c+(rk.b?';font-weight:800':'')+'">'+rk.n+'</b>':'')
+              +'</span>' : '')
         +'</td>'+tail+'</tr>';
     if(open) body += '<tr class="detail"><td colspan="'+cols+'">'+rowDetail(sl, it, groups[sl.k]||[])+'</td></tr>';
   });
