@@ -33,7 +33,7 @@ img{max-width:100%}
   --fg:#efe9dc; --dim:#a79d89; --faint:#7c7462;
   --accent:#ffb020; --accent-ink:#241802;
   --ok:#b8d46a; --warn:#ff9a4d; --bad:#ff6b5a;
-  --pot:#e0a3ff; --fl:#6fd3d0;
+  --pot:#e0a3ff; --add:#ff9ec4; --fl:#6fd3d0;
   --sans:'Noto Sans JP',"Segoe UI","Yu Gothic UI",Meiryo,system-ui,sans-serif;
   --mono:'JetBrains Mono','Noto Sans JP',ui-monospace,SFMono-Regular,monospace;
 }
@@ -45,7 +45,7 @@ img{max-width:100%}
   --fg:#241f16; --dim:#6b6253; --faint:#948a78;
   --accent:#a76a00; --accent-ink:#fffdf8;
   --ok:#4d7a18; --warn:#9a5100; --bad:#b4342a;
-  --pot:#7b3fbf; --fl:#15726f;
+  --pot:#7b3fbf; --add:#b03a6e; --fl:#15726f;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -112,7 +112,7 @@ button{font-family:inherit;font-size:13px}
 .bar .nm span{font-weight:400;color:var(--dim);font-size:12px;margin-left:6px}
 .kv{font-size:11.5px;color:var(--dim)}
 .kv b{font-family:var(--mono);color:var(--fg);margin-left:5px;font-weight:700}
-.kv.p b{color:var(--pot)} .kv.f b{color:var(--fl)}
+.kv.p b{color:var(--pot)} .kv.a b{color:var(--add)} .kv.f b{color:var(--fl)}
 .bar .right{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
 .tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:9px 14px;
   border-bottom:1px solid var(--line2);font-size:11.5px;color:var(--dim)}
@@ -1591,9 +1591,9 @@ const POTSHORT = {mainStatPct:['主','%'], allStatPct:['全','%'], mainStat:['�
   subStatPct:['サブ','%'], subStat:['サブ',''], atkPct:['攻','%'], atk:['攻',''],
   dmg:['ダメ','%'], bossDmg:['ボス','%'], ignoreDef:['無視','%'],
   critDmg:['クリダメ','%'], critRate:['クリ率','%'], finalDmg:['最ダメ','%']};
-function potSum(it){
+function potSum(lines){
   const m = {};
-  ((it.pot||[]).concat(it.add||[])).forEach(l=>{
+  (lines||[]).forEach(l=>{
     if(!l.t || !(+l.v) || !POTSHORT[l.t]) return;
     m[l.t] = (m[l.t]||0) + (+l.v);
   });
@@ -1670,14 +1670,16 @@ function tagOf(k){ return k==='sf' ? '<span class="tag sf">スタフォ</span>'
    ============================================================ */
 function renderBar(){
   const ch = C(), conv = ch.conv;
-  let worn=0, stars=0, sp=0, sf=0;
+  let worn=0, stars=0, sp=0, sa=0, sf=0;
   SLOTS.forEach(sl=>{ const it = ch.gear[sl.k]; if(!it) return;
-    worn++; stars += (+it.star||0); sp += itemPot(it,conv); sf += itemFlame(it,conv); });
+    worn++; stars += (+it.star||0); sp += sumLines(it.pot,conv); sa += sumLines(it.add,conv);
+    sf += itemFlame(it,conv); });
   $('charbar').innerHTML =
     '<div class="nm">'+esc(ch.name)+'<span>'+esc(ch.job||'職業未設定')+'</span></div>'
    +'<div class="kv">装着<b>'+worn+' / 25</b></div>'
    +'<div class="kv">★合計<b>'+stars+'</b></div>'
    +'<div class="kv p">潜在<b>'+p2(sp)+'</b></div>'
+   +'<div class="kv a">アディ<b>'+p2(sa)+'</b></div>'
    +'<div class="kv f">転生<b>'+p2(sf)+'</b></div>'
    +'<div class="right"><button class="btn pri" id="b-add">装備を追加</button>'
    +'<button class="btn" id="b-preset">まとめて入れる</button>'
@@ -1733,7 +1735,7 @@ function renderGrid(){
     });
   }
   const head = '<tr><th>部位</th><th>装備</th><th class="num">★</th><th class="num">潜在</th>'
-    +'<th class="num">転生</th><th>次の一手</th>'
+    +'<th class="num">アディ</th><th class="num">転生</th><th>次の一手</th>'
     + (own ? '<th class="num">個数</th><th class="num">1個あたり</th><th class="num">手持ちで届く</th>'
            : '<th class="num">かかるメル</th><th class="num">1Gあたり</th>'
              + (bud>0 ? '<th class="num">累計</th><th class="num">届く確率</th>' : ''))
@@ -1742,14 +1744,14 @@ function renderGrid(){
   let sumC=0, sumG=0, body='';
   list.forEach(sl=>{
     const it = ch.gear[sl.k], open = (S.ui.open===sl.k), b = best[sl.k];
-    const cols = own ? 9 : (bud>0 ? 10 : 8);
+    const cols = own ? 10 : (bud>0 ? 11 : 9);
     if(!it){
       body += '<tr class="row vacant" data-slot="'+sl.k+'"><td><span class="twist">›</span> '+sl.n
         +'<span class="cat">'+sl.c+'</span></td><td colspan="'+(cols-1)+'">＋ ここに登録する</td></tr>';
       return;
     }
-    const p = itemPot(it,conv), f = itemFlame(it,conv);
-    const ps = potSum(it), fs = flameScore(it.flame);
+    const p = sumLines(it.pot,conv), ad = sumLines(it.add,conv), f = itemFlame(it,conv);
+    const ps = potSum(it.pot), as = potSum(it.add), fs = flameScore(it.flame);
     // 「国民転生」の目安は防具・装飾品の話。武器は攻撃力分で桁が変わるので比べない。
     const std = (it.canFl && sl.c !== '武器') ? flameStd(it.lv) : 0;
     // 防具・装飾品は級数、武器は攻撃力の段階で評価する。
@@ -1757,8 +1759,8 @@ function renderGrid(){
     const rk = (wt===null) ? flameRank(fs, std) : weaponRank(wt);
     const rkNote = (wt===null) ? '' : (wt>0 ? '段階'+wt+' ' : wt===0 ? '攻撃力なし ' : '');
     const rkTip = (wt===null)
-      ? (std ? 'Lv'+(+it.lv||0)+'の目安：'+Math.round(std*0.8)+'級未満で要厳選、'
-             + Math.round(std)+'級で合格、'+Math.round(std*1.2)+'級以上で大当たり' : '')
+      ? (std ? 'Lv'+(+it.lv||0)+'の目安：'+Math.round(std*0.8)+'点未満で要厳選、'
+             + Math.round(std)+'点で合格、'+Math.round(std*1.2)+'点以上で大当たり' : '')
       : (wt===-1 ? '今の攻撃力はどの段階とも合わない。純粋攻撃力か転生の値を見直す'
                  : '武器は攻撃力の段階で見る。段階7が最高（韓国で言う1추）。'
                  + '段階5で妥協、6で合格、7で大当たり');
@@ -1784,7 +1786,7 @@ function renderGrid(){
         }
       }
     }else{
-      tail = '<td colspan="'+(cols-5)+'" style="color:var(--faint)">—</td>';
+      tail = '<td colspan="'+(cols-6)+'" style="color:var(--faint)">—</td>';
     }
     body += '<tr class="row'+(open?' open':'')+'" data-slot="'+sl.k+'">'
       +'<td><span class="twist">›</span> '+sl.n+'<span class="cat">'+sl.c+'</span></td>'
@@ -1792,9 +1794,11 @@ function renderGrid(){
       +'<td class="num">'+(it.sf?('★'+(+it.star||0)):'—')+'</td>'
       +'<td class="num" style="color:var(--pot)">'+(p?p2(p):'—')
         + (ps ? '<span class="sub">'+esc(ps)+'</span>' : '')+'</td>'
+      +'<td class="num" style="color:var(--add)">'+(ad?p2(ad):'—')
+        + (as ? '<span class="sub">'+esc(as)+'</span>' : '')+'</td>'
       +'<td class="num" style="color:var(--fl)">'+(f?p2(f):'—')
         + (fs ? '<span class="sub"'+(rkTip?' title="'+esc(rkTip)+'"':'')+'>'
-              +Math.round(fs)+'級 '+rkNote
+              +Math.round(fs)+'点 '+rkNote
               +(rk?'<b style="color:'+rk.c+(rk.b?';font-weight:800':'')+'">'+rk.n+'</b>':'')
               +'</span>' : '')
         +'</td>'+tail+'</tr>';
@@ -1890,7 +1894,7 @@ function rowDetail(sl, it, cands){
       + GRADES.map(g=>'<option'+(it.potGrade===g?' selected':'')+'>'+g+'</option>').join('')+'</select></label>'
       + lineRows(it.pot,'pot')
       + '<button class="btn" data-add="pot">ラインを足す</button></div>'
-      + '<div class="dsec"><p class="cap">追加潜在(アディ)　<span class="ro" style="color:var(--pot)">'+p2(sumLines(it.add,conv))+'</span></p>'
+      + '<div class="dsec"><p class="cap">追加潜在(アディ)　<span class="ro" style="color:var(--add)">'+p2(sumLines(it.add,conv))+'</span></p>'
       + '<label class="f" style="margin-bottom:7px"><span>ランク</span><select data-k="addGrade">'
       + GRADES.map(g=>'<option'+(it.addGrade===g?' selected':'')+'>'+g+'</option>').join('')+'</select></label>'
       + lineRows(it.add,'add')
@@ -2346,7 +2350,7 @@ function renderSetConv(){
    +'<div class="grid2" id="convcalc"></div>'
    +'<button class="btn pri" id="btn-convcalc" style="margin-top:10px">この値から係数を作る</button>'
    + convStale(ch) + '</div>'
-   +'<div class="sect"><details><summary>転生スコア（級）の重み</summary>'
+   +'<div class="sect"><details><summary>転生スコア（点）の重み</summary>'
    +'<p class="hint">転生の炌を「主ステいくつ分か」に換算した合計。最終ダメ換算とは別で、'
    +'<b>録や他の人と比べるときの共通言語</b>。主ステ×1・攻マ×4・オールステ%×10 は広く共通。'
    +'ボスダメとダメージは資料でブレる。</p>'
