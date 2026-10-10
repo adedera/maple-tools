@@ -215,6 +215,10 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .seg button{flex:1;min-width:0;background:var(--sunken);color:var(--dim);border:0;padding:7px 5px;
   cursor:pointer;font-size:11.5px;line-height:1.3}
 .seg button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.seg .dot{display:inline-block;width:7px;height:7px;border-radius:999px;margin-right:5px;vertical-align:1px}
+.seg.inline{display:inline-flex;margin:0;width:auto;flex:0 0 auto}
+.seg.inline button{flex:0 0 auto;white-space:nowrap;padding:7px 13px}
+.seg.fl button[aria-selected="true"]{background:var(--fl);color:#06302f}
 .sect{border-top:1px solid var(--line2);margin-top:14px;padding-top:12px}
 .sect:first-child{border-top:0;margin-top:0;padding-top:0}
 .sect h4{margin:0 0 8px;font-size:11px;letter-spacing:.04em;color:var(--accent);font-weight:700;
@@ -478,7 +482,8 @@ function uid(){ return Math.random().toString(36).slice(2,9); }
    状態
    ============================================================ */
 /* 画面の状態。sort=並び替え, open=開いている枠, budget=予算の入力文字列, set=設定のタブ */
-function defUi(){ return {sort:'eff', showEmpty:false, open:null, budget:'', sideHidden:false, set:'conv', mode:'mel',
+function defUi(){ return {sort:'eff', showEmpty:false, open:null, budget:'', sideHidden:false, set:'conv',
+           view:'all', pay:'mel',
                          kinds:{sf:1,pot:1,flame:1}}; }
 let S = load();
 function load(){
@@ -1856,25 +1861,21 @@ function candGroups(){
     c.eff = c.cost>0 ? c.gain/(c.cost/1e9) : 0;
     (g[c.slot.k] = g[c.slot.k] || []).push(c);
   });
-  const own = S.ui.mode==='own';
+  const own = ownMode();
   for(const k in g) g[k].sort((a,b)=> own ? ((b.perGain||0)-(a.perGain||0)) : (b.eff-a.eff));
   return g;
 }
-/* 「メルを使う手」モードでは手持ちの炎を出さない。単位が違って比べられないため。
-   「手持ちの炎」モードではその逆。 */
+/* 手持ちの炎を使う表示になっているか。単位（個数）がメルと違うので、あちこちで効く。 */
+function ownMode(){ return S.ui.view==='flame' && S.ui.pay==='own'; }
+/* 見ているタブに合う手を1つ返す。
+   「全体」はメルで買う手だけ。手持ちの炎は単位が違うので、転生タブでだけ出す。 */
 function bestOf(list){
-  const own = S.ui.mode==='own';
-  return (list||[]).find(c=>S.ui.kinds[c.kind] && (own ? c.free : !c.free)) || null;
-}
-/* 「手持ちの炎」モードでも、メルで買う手（スタフォ・潜在）を横に並べて見比べられるようにする。
-   並びは炎の効率順なので、こちらは1Gあたりが一番いいものを自分で探す。 */
-function bestMelOf(list){
-  let b = null;
-  (list||[]).forEach(c=>{
-    if(!S.ui.kinds[c.kind] || c.free || c.kind==='flame') return;
-    if(!b || (c.eff||0) > (b.eff||0)) b = c;
-  });
-  return b;
+  const view = S.ui.view||'all', own = ownMode();
+  return (list||[]).find(c=>{
+    if(view==='all') return !c.free;
+    if(c.kind !== view) return false;
+    return own ? c.free : !c.free;
+  }) || null;
 }
 function tagOf(k){ return k==='sf' ? '<span class="tag sf">スタフォ</span>'
   : k==='pot' ? '<span class="tag pot">潜在</span>' : '<span class="tag fl">転生</span>'; }
@@ -1908,26 +1909,34 @@ function renderBar(){
    ============================================================ */
 const SORTS_MEL = [['eff','1Gあたりの伸び'],['gain','伸びの大きさ'],['slot','部位の順']];
 const SORTS_OWN = [['eff','炎1個あたりの伸び'],['gain','伸びの大きさ'],['slot','部位の順']];
+/* 強化の種類のタブ。色は一覧の「次の一手」に出る札と同じ。 */
+const VIEWS = [['all','全体',''],['sf','スタフォ','var(--accent)'],
+               ['pot','潜在','var(--pot)'],['flame','転生','var(--fl)']];
 function renderTools(){
-  const own = S.ui.mode==='own';
+  const view = S.ui.view||'all', own = ownMode();
   $('tools').innerHTML =
-    '<div class="seg" style="width:auto;margin:0"><button id="m-mel"'+(own?'':' aria-selected="true"')+'>メルを使う手</button>'
-    + '<button id="m-own"'+(own?' aria-selected="true"':'')+'>手持ちの炎</button></div>'
+    '<div class="seg inline">'
+    + VIEWS.map(([k,n,c])=>'<button data-view="'+k+'"'+(view===k?' aria-selected="true"':'')+'>'
+        + (c ? '<span class="dot" style="background:'+c+'"></span>' : '') + n + '</button>').join('')
+    + '</div>'
+    // 払い方が2通りあるのは転生だけ。だからここにだけ出す。
+    + (view==='flame'
+        ? '<div class="seg inline fl">'
+          + '<button data-pay="own"'+(own?' aria-selected="true"':'')+'>手持ちを使う</button>'
+          + '<button data-pay="mel"'+(own?'':' aria-selected="true"')+'>メルで買う</button></div>'
+        : '')
     + '<span>並び替え</span><select id="t-sort" style="width:auto">'
     + (own?SORTS_OWN:SORTS_MEL).map(([k,n])=>'<option value="'+k+'"'+(S.ui.sort===k?' selected':'')+'>'+n+'</option>').join('')
     +'</select>'
    +'<label class="chk"><input type="checkbox" id="t-empty"'+(S.ui.showEmpty?' checked':'')+'>未登録の枠も出す</label>'
-   +'<span style="color:var(--faint)">|</span>'
-   + [['sf','スタフォ'],['pot','潜在'],['flame','転生']].map(([k,n])=>
-      '<label class="chk"><input type="checkbox" class="t-kind" data-k="'+k+'"'+(S.ui.kinds[k]?' checked':'')+'>'+n+'</label>').join('')
    + (own ? '<span class="sp" style="color:var(--faint)">手持ちの黒い・深淵の炎を、どの装備に使うかの並び。個数は左の「値段と確率」で入れる。</span>'
           : '<span class="sp">予算 <input type="text" id="t-budget" value="'+esc(S.ui.budget||'')+'" placeholder="例: 10G" style="width:84px"></span>');
-  $('m-mel').onclick = ()=>{ S.ui.mode='mel'; save(); renderAll(); };
-  $('m-own').onclick = ()=>{ S.ui.mode='own'; save(); renderAll(); };
+  $('tools').querySelectorAll('[data-view]').forEach(b=> b.onclick = ()=>{
+    S.ui.view = b.dataset.view; save(); renderAll(); });
+  $('tools').querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=>{
+    S.ui.pay = b.dataset.pay; save(); renderAll(); });
   $('t-sort').onchange = ()=>{ S.ui.sort = $('t-sort').value; save(); renderGrid(); };
   $('t-empty').onchange = ()=>{ S.ui.showEmpty = $('t-empty').checked; save(); renderGrid(); };
-  document.querySelectorAll('.t-kind').forEach(c=> c.onchange = ()=>{
-    S.ui.kinds[c.dataset.k] = c.checked?1:0; save(); renderGrid(); });
   if($('t-budget')) $('t-budget').onchange = ()=>{ S.ui.budget = $('t-budget').value.trim(); save(); renderGrid(); };
 }
 
@@ -1936,7 +1945,7 @@ function renderTools(){
    ============================================================ */
 function renderGrid(){
   const ch = C(), conv = ch.conv, groups = candGroups();
-  const own = S.ui.mode==='own';
+  const own = ownMode();
   const bud = own ? 0 : parseMel(S.ui.budget||'');
   let list = SLOTS.filter(sl=> ch.gear[sl.k] || (S.ui.showEmpty && !sl.exc));
   const best = {};
@@ -1951,7 +1960,6 @@ function renderGrid(){
   const head = '<tr><th>部位</th><th>装備</th><th class="num">★</th><th class="num">潜在</th>'
     +'<th class="num">アディ</th><th class="num">転生</th><th>次の一手</th>'
     + (own ? '<th class="num">個数</th><th class="num">1個あたり</th><th class="num">手持ちで届く</th>'
-             + '<th>メルで買う手（スタフォ・潜在）</th>'
            : '<th class="num">かかるメル</th><th class="num">1Gあたり</th>'
              + (bud>0 ? '<th class="num">累計</th><th class="num">届く確率</th>' : ''))
     + '</tr>';
@@ -1959,7 +1967,7 @@ function renderGrid(){
   let sumC=0, sumG=0, body='';
   list.forEach(sl=>{
     const it = ch.gear[sl.k], open = (S.ui.open===sl.k), b = best[sl.k];
-    const cols = own ? 11 : (bud>0 ? 11 : 9);
+    const cols = own ? 10 : (bud>0 ? 11 : 9);
     if(!it){
       body += '<tr class="row vacant" data-slot="'+sl.k+'"><td><span class="twist">›</span> '+sl.n
         +'<span class="cat">'+sl.c+'</span></td><td colspan="'+(cols-1)+'">＋ ここに登録する</td></tr>';
@@ -1981,20 +1989,13 @@ function renderGrid(){
                  : '武器は攻撃力の段階で見る。段階7が最高（韓国で言う1추）。'
                  + '段階5で妥協、6で合格、7で大当たり');
     let tail = '';
-    if(own){
-      // 炎の手（無ければ空欄）と、メルで買う手を並べる
-      const bm = bestMelOf(groups[sl.k]);
-      const dash = '<span style="color:var(--faint)">—</span>';
-      tail = '<td>'+(b ? tagOf(b.kind)+' '+esc(b.label) : dash)+'</td>'
-        + '<td class="num">'+(b ? cnt(b.units)+'<span class="sub">中央 '+cnt(medTries(b.p))+'</span>' : dash)+'</td>'
-        + '<td class="num eff">'+(b ? p4(b.perGain) : dash)+'</td>'
-        + '<td class="num">'+(b ? pct(1-Math.pow(1-b.p, b.own))+'<span class="sub">手持ち '+b.own+'個</span>' : dash)+'</td>'
-        + '<td>'+(bm ? tagOf(bm.kind)+' '+esc(bm.label)
-            +'<span class="sub">'+mel(bm.cost)+'　<b style="color:var(--accent);font-weight:700">'
-            +p2(bm.eff)+'</b> 1Gあたり</span>' : dash)+'</td>';
-    }else if(b){
+    if(b){
       tail = '<td>'+tagOf(b.kind)+' '+esc(b.label)+'</td>';
-      {
+      if(own){
+        tail += '<td class="num">'+cnt(b.units)+'<span class="sub">中央 '+cnt(medTries(b.p))+'</span></td>'
+          + '<td class="num eff">'+p4(b.perGain)+'</td>'
+          + '<td class="num">'+pct(1-Math.pow(1-b.p, b.own))+'<span class="sub">手持ち '+b.own+'個</span></td>';
+      }else{
         tail += '<td class="num">'+mel(b.cost)
           + (b.extra && b.extra.destroy>0.005 ? '<span class="sub">破壊 '+b.extra.destroy.toFixed(2)+'回</span>':'')
           + '</td><td class="num eff">'+p2(b.eff)+'</td>';
