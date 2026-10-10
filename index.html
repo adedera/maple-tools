@@ -440,6 +440,10 @@ function defSettings(){
             cubeMel:{ suspicious:5000, craftsman:5000000, master:40000000 },
             flameMel:{ power:300000, eternal:2400000 } },
     flameOwn:{ power:0, eternal:0, black:0, abyss:0 },
+    /* 転生スコア(韓国で言う「추옵급」)の重み。主ステに換算した合計。
+       主ステ×1・攻マ×4・オールステ%×10 は広く共通。ボスダメ・ダメージは資料でブレるので変えられる。
+       出典: tools.devcomma.com の追加オプション計算機の既定値と namu.wiki「추가옵션」の記述。 */
+    score:{ mainStat:1, subStat:0, atk:4, allStatPct:10, bossDmg:8, dmg:12 },
     sf:{ protect:false, vip:0, ev_cost30:false, ev_dest30:false, ev_100:false,
          ev_bonus10:false, ev_guardian:false, destroyBack:12 },
     rows: defSfRows()
@@ -1540,6 +1544,31 @@ function candidates(){
 }
 function lineText(ls){ return (ls||[]).filter(l=>l.t&&+l.v).map(l=>shortStat(l.t)+'+'+(+l.v)).join(' ') || '(未設定)'; }
 function flameText(fl){ return FLAMEF.filter(([k])=>+((fl||{})[k])).map(([k,n])=>n+'+'+(+fl[k])).join(' ') || '(未設定)'; }
+/* 転生スコア。転生の炎の行を「主ステいくつ分か」に換算して足した値。
+   録で比べるときの共通言語なので、最終ダメ換算とは別に出す。 */
+function flameScore(fl){
+  const w = (S.settings.score)||{}, f = fl||{};
+  return (+f.mainStat||0)*(+w.mainStat||0) + (+f.subStat||0)*(+w.subStat||0)
+       + (+f.atk||0)*(+w.atk||0) + (+f.allStatPct||0)*(+w.allStatPct||0)
+       + (+f.bossDmg||0)*(+w.bossDmg||0) + (+f.dmg||0)*(+w.dmg||0);
+}
+/* そのレベルで「国民転生」と言われる目安。namu.wikiの記述。150製=110～120、250=180。 */
+function flameStd(lv){ lv = +lv||0;
+  return lv>=250 ? 180 : lv>=200 ? 155 : lv>=160 ? 125 : lv>=150 ? 115 : 0; }
+
+/* 一覧に出す潜在の合計。同じ種類の行を足して短く書く。上潜在＋アディ。 */
+const POTSHORT = {mainStatPct:['主','%'], allStatPct:['全','%'], mainStat:['主',''],
+  subStatPct:['サブ','%'], subStat:['サブ',''], atkPct:['攻','%'], atk:['攻',''],
+  dmg:['ダメ','%'], bossDmg:['ボス','%'], ignoreDef:['無視','%'],
+  critDmg:['クリダメ','%'], critRate:['クリ率','%'], finalDmg:['最ダメ','%']};
+function potSum(it){
+  const m = {};
+  ((it.pot||[]).concat(it.add||[])).forEach(l=>{
+    if(!l.t || !(+l.v) || !POTSHORT[l.t]) return;
+    m[l.t] = (m[l.t]||0) + (+l.v);
+  });
+  return STATS.filter(x=>m[x.k]).map(x=> POTSHORT[x.k][0] + m[x.k] + POTSHORT[x.k][1]).join(' ');
+}
 function shortStat(k){ return ({mainStatPct:'ステ%',allStatPct:'オール%',mainStat:'ステ',
   subStatPct:'サブ%',subStat:'サブ',atkPct:'攻%',atk:'攻',
   dmg:'ダメ',bossDmg:'ボス',ignoreDef:'無視',critDmg:'クリダメ',critRate:'クリ率',finalDmg:'最ダメ',other:'他'})[k]||k; }
@@ -1690,6 +1719,9 @@ function renderGrid(){
       return;
     }
     const p = itemPot(it,conv), f = itemFlame(it,conv);
+    const ps = potSum(it), fs = flameScore(it.flame);
+    // 「国民転生」の目安は防具・装飾品の話。武器は攻撃力分で桁が変わるので比べない。
+    const std = (it.canFl && sl.c !== '武器') ? flameStd(it.lv) : 0;
     let tail = '';
     if(b){
       tail = '<td>'+tagOf(b.kind)+' '+esc(b.label)+'</td>';
@@ -1718,8 +1750,11 @@ function renderGrid(){
       +'<td><span class="twist">›</span> '+sl.n+'<span class="cat">'+sl.c+'</span></td>'
       +'<td>'+esc(it.name||'(名前なし)')+'</td>'
       +'<td class="num">'+(it.sf?('★'+(+it.star||0)):'—')+'</td>'
-      +'<td class="num" style="color:var(--pot)">'+(p?p2(p):'—')+'</td>'
-      +'<td class="num" style="color:var(--fl)">'+(f?p2(f):'—')+'</td>'+tail+'</tr>';
+      +'<td class="num" style="color:var(--pot)">'+(p?p2(p):'—')
+        + (ps ? '<span class="sub">'+esc(ps)+'</span>' : '')+'</td>'
+      +'<td class="num" style="color:var(--fl)">'+(f?p2(f):'—')
+        + (fs ? '<span class="sub">'+Math.round(fs)+'級'+(std?' / 国民'+std:'')+'</span>' : '')
+        +'</td>'+tail+'</tr>';
     if(open) body += '<tr class="detail"><td colspan="'+cols+'">'+rowDetail(sl, it, groups[sl.k]||[])+'</td></tr>';
   });
 
@@ -2268,6 +2303,11 @@ function renderSetConv(){
    +'<div class="grid2" id="convcalc"></div>'
    +'<button class="btn pri" id="btn-convcalc" style="margin-top:10px">この値から係数を作る</button>'
    + convStale(ch) + '</div>'
+   +'<div class="sect"><details><summary>転生スコア（級）の重み</summary>'
+   +'<p class="hint">転生の炌を「主ステいくつ分か」に換算した合計。最終ダメ換算とは別で、'
+   +'<b>録や他の人と比べるときの共通言語</b>。主ステ×1・攻マ×4・オールステ%×10 は広く共通。'
+   +'ボスダメとダメージは資料でブレる。</p>'
+   +'<div class="grid2" id="scorelist"></div></details></div>'
    +'<div class="sect"><details><summary>換算係数を直接いじる</summary>'
    +'<p class="hint">「1%(または1)あたり、最終ダメージが何%伸びるか」。最終ダメージ%は定義上かならず1。</p>'
    +'<div class="grid2" id="convlist"></div>'
@@ -2287,6 +2327,11 @@ function renderSetConv(){
   $('convcalc').innerHTML = CALCF.map(([k,n])=>
     '<label class="f"><span>'+n+'</span><input type="number" data-calc="'+k+'" value="'+(ch.calc[k]||0)+'"></label>').join('');
   $('convcalc').querySelectorAll('[data-calc]').forEach(i=> i.onchange = ()=>{ ch.calc[i.dataset.calc] = +i.value||0; save(); });
+  $('scorelist').innerHTML = FLAMEF.map(([k,n])=>
+    '<label class="f"><span>'+n+'</span><input type="number" step="0.5" data-score="'+k+'" value="'
+    + (+(S.settings.score||{})[k]||0) + '"></label>').join('');
+  $('scorelist').querySelectorAll('[data-score]').forEach(i=> i.onchange = ()=>{
+    S.settings.score[i.dataset.score] = +i.value||0; save(); redrawKeep(); });
   $('convlist').innerHTML = STATS.map(s=>
     '<label class="f"><span>'+s.n+'</span><input type="number" step="0.001" data-conv="'+s.k+'" value="'+(ch.conv[s.k]||0)+'"></label>').join('');
   $('convlist').querySelectorAll('[data-conv]').forEach(i=> i.onchange = ()=>{
