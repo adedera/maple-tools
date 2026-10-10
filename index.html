@@ -9,6 +9,17 @@
 :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 img{max-width:100%}
 </style>
+<!-- GitHub Pages 用。Xなどに貼ったときのカードとタブのアイコン。
+     タイトルタグより前に置くこと。build_gear.py の公開版はタイトルタグから切り出すので、
+     ここにあると Artifact 側に meta が混ざらない。 -->
+<meta name="description" content="メイプルストーリー(JMS)の装備強化プランナー。スターフォース・潜在能力・転生の炎を「最終ダメージ換算」の1本の軸で並べて、次にどこを強化するのが一番伸びるかを出す。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="強化の次の一手">
+<meta property="og:description" content="メイプルストーリー(JMS)の装備強化プランナー。スターフォース・潜在能力・転生の炎を「最終ダメージ換算」の1本の軸で並べて、次にどこを強化するのが一番伸びるかを出す。">
+<meta property="og:url" content="https://adedera.github.io/maple-tools/">
+<meta property="og:image" content="https://adedera.github.io/maple-tools/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2317150f'/%3E%3Cpath d='M32 11l6.4 13 14.3 2.1-10.3 10.1 2.4 14.3L32 43.7 19.2 50.5l2.4-14.3L11.3 26.1 25.6 24z' fill='%23ffb020'/%3E%3C/svg%3E">
 <title>強化の次の一手</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Noto+Sans+JP:wght@400;500;700;800&display=swap">
@@ -2404,7 +2415,10 @@ function renderSetData(){
    +'転生の炎（追加オプション）の確率: 韓国公式の確率公開ページ、値の計算式は namu.wiki「추가옵션」<br>'
    +'ダメージ式: インベン「메이플스토리 「피해량」에 대한 이해3」 '
    +'<a href="https://www.inven.co.kr/board/maple/2816/888" target="_blank" rel="noopener">inven.co.kr</a><br>'
-   +'<b>キューブ・炎の価格は初期値がただの目安</b>。オークションの相場で動くので「値段と確率」タブで変える。</p></div>';
+   +'<b>キューブ・炎の価格は初期値がただの目安</b>。オークションの相場で動くので「値段と確率」タブで変える。</p></div>'
+   +'<div class="sect"><h4>このツールについて</h4><p class="hint" style="margin-top:0">'
+   +'最新版と更新履歴: <a href="https://github.com/adedera/maple-tools" target="_blank" rel="noopener">github.com/adedera/maple-tools</a><br>'
+   +'数字がおかしい・読み取りが失敗するなどあれば、そこの Issues か配布元へ。</p></div>';
   $('d-export').onclick = doExport;
   $('d-import').onclick = doImport;
   $('d-reset').onclick = ()=>{ if(confirm('このブラウザに保存した装備データを全部消す。よい?')){
