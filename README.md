@@ -3,7 +3,7 @@
 メイプルストーリー(JMS)の装備強化プランナー。
 今の装備から、**次にどこを強化するのが一番伸びるか**を1本の軸で並べる。
 
-👉 **https://USERNAME.github.io/REPO/**　←公開後にURLを書き換える
+👉 **https://adedera.github.io/maple-tools/**
 
 ## できること
 
