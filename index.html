@@ -1559,6 +1559,24 @@ function flameStd(lv){ lv = +lv||0;
 /* 「国民○級」という言い方は日本では伝わらないので、言葉にする。
    目安の 0.8 / 1.0 / 1.2 倍で区切る。実質の上限が目安の 1.25～1.35 倍辺りなので、
    1.2倍以上は段階がほぼ最高でないと出ない。 */
+/* 武器は級数の目安が使えない（攻撃力×4 で桁が変わるし、素の攻撃力でも変わる）。
+   かわりに「攻撃力の行が何段階か」で語られる。韓国で言う 1추(段階7)～5추(段階3)。
+   戻り値: 1～7=その段階 / 0=攻撃力の行がない / -1=どの段階とも合わない / null=純粋攻撃力が未入力 */
+function weaponTier(it){
+  const a = +it.baseAtk||0, cur = +((it.flame||{}).atk)||0;
+  if(!(a>0)) return null;
+  if(!cur) return 0;
+  const q = Math.floor((+it.lv||0)/40)+1;
+  for(let t=7;t>=1;t--) if(Math.ceil(a*q*t*Math.pow(1.1,t-3)/100) === cur) return t;
+  return -1;
+}
+function weaponRank(t){
+  if(t===null || t===-1) return null;
+  if(t>=7) return {n:'大当たり', c:'var(--accent)', b:1};
+  if(t>=6) return {n:'合格',       c:'var(--ok)',     b:0};
+  if(t>=5) return {n:'妥協',       c:'var(--warn)',   b:0};
+  return          {n:'要厳選',     c:'var(--faint)',  b:0};
+}
 function flameRank(score, std){
   if(!(std>0)) return null;
   const r = score/std;
@@ -1734,7 +1752,16 @@ function renderGrid(){
     const ps = potSum(it), fs = flameScore(it.flame);
     // 「国民転生」の目安は防具・装飾品の話。武器は攻撃力分で桁が変わるので比べない。
     const std = (it.canFl && sl.c !== '武器') ? flameStd(it.lv) : 0;
-    const rk = flameRank(fs, std);
+    // 防具・装飾品は級数、武器は攻撃力の段階で評価する。
+    const wt = (it.canFl && sl.c === '武器') ? weaponTier(it) : null;
+    const rk = (wt===null) ? flameRank(fs, std) : weaponRank(wt);
+    const rkNote = (wt===null) ? '' : (wt>0 ? '段階'+wt+' ' : wt===0 ? '攻撃力なし ' : '');
+    const rkTip = (wt===null)
+      ? (std ? 'Lv'+(+it.lv||0)+'の目安：'+Math.round(std*0.8)+'級未満で要厳選、'
+             + Math.round(std)+'級で合格、'+Math.round(std*1.2)+'級以上で大当たり' : '')
+      : (wt===-1 ? '今の攻撃力はどの段階とも合わない。純粋攻撃力か転生の値を見直す'
+                 : '武器は攻撃力の段階で見る。段階7が最高（韓国で言う1추）。'
+                 + '段階5で妥協、6で合格、7で大当たり');
     let tail = '';
     if(b){
       tail = '<td>'+tagOf(b.kind)+' '+esc(b.label)+'</td>';
@@ -1766,11 +1793,9 @@ function renderGrid(){
       +'<td class="num" style="color:var(--pot)">'+(p?p2(p):'—')
         + (ps ? '<span class="sub">'+esc(ps)+'</span>' : '')+'</td>'
       +'<td class="num" style="color:var(--fl)">'+(f?p2(f):'—')
-        + (fs ? '<span class="sub"'+(rk?' title="Lv'+(+it.lv||0)+'の目安：'
-              +Math.round(std*0.8)+'級未満で要厳選、'+Math.round(std)+'級で合格、'
-              +Math.round(std*1.2)+'級以上で大当たり"':'')+'>'
-              +Math.round(fs)+'級'
-              +(rk?' <b style="color:'+rk.c+(rk.b?';font-weight:800':'')+'">'+rk.n+'</b>':'')
+        + (fs ? '<span class="sub"'+(rkTip?' title="'+esc(rkTip)+'"':'')+'>'
+              +Math.round(fs)+'級 '+rkNote
+              +(rk?'<b style="color:'+rk.c+(rk.b?';font-weight:800':'')+'">'+rk.n+'</b>':'')
               +'</span>' : '')
         +'</td>'+tail+'</tr>';
     if(open) body += '<tr class="detail"><td colspan="'+cols+'">'+rowDetail(sl, it, groups[sl.k]||[])+'</td></tr>';
