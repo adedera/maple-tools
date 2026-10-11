@@ -2210,12 +2210,18 @@ function bestCombos(ch, group, tier, lv, cube, isAdd, topN, keys){
     out.sort((a,b)=> b.v-a.v);
     return out.slice(0, 8);          // 上位だけ見れば最大は決まる
   };
-  const A = ent(tier); if(!A.length) return [];
-  const BC = A.concat(ti>0 ? ent(TIERS[ti-1]) : []);
+  const A0 = ent(tier); if(!A0.length) return [];
+  // 火力に関係しない行が出ることは珍しくない。1本だけ・2本だけ当たった形も表せるように
+  // 「効かない行」を候補に入れておく。
+  const NUL = {v:0, l:''};
+  const A = A0.concat([NUL]);
+  const BC = A0.concat(ti>0 ? ent(TIERS[ti-1]) : [], [NUL]);
   const res = [];
   A.forEach(a=> BC.forEach((b,bi)=> BC.forEach((c,ci)=>{
     if(ci < bi) return;                       // 並び替えただけの重複を避ける
-    res.push({v:a.v+b.v+c.v, parts:[a,b,c].sort((x,y)=>y.v-x.v).map(z=>z.l)});
+    const parts = [a,b,c].sort((x,y)=>y.v-x.v).filter(z=>z.v>0).map(z=>z.l);
+    if(!parts.length) return;
+    res.push({v:a.v+b.v+c.v, parts});
   })));
   res.sort((x,y)=> y.v-x.v);
   const seen = new Set(), out = [];
@@ -2289,18 +2295,26 @@ function growthPanel(sl, it, isAdd){
   const qAt = (d,q)=>{ const xs=[...d.entries()].sort((a,b)=>b[0]-a[0]); let a=0;
     for(const e of xs){ a+=e[1]; if(a>=q) return e[0]; } return 0; };
   const tailP = (d,x)=>{ let s=0; d.forEach((p,v)=>{ if(v>=x-1e-9) s+=p; }); return s; };
-  const st = v => UN.label+Math.round(v/unit)+'%<s>'+p2(v)+'</s>';
-  /* ものさしの実値 n% を出す。換算は n%ぶんの値。 */
-  const su = n => UN.label+n+'%<s>'+p2(n*unit)+'</s>';
+  /* 着地点は最終ダメ換算そのもので出す。ものさし(主ステ%など)の合計だけで出すと、
+     手袋のクリティカルダメージのように<b>別系統の強い行が丸ごと抜け落ちる</b>。
+     どんな中身かは、狙う系統の組み合わせで一番近いものを添えて示す。 */
+  const CB = {};
+  TIER4.forEach(t=>{ if(D[t]) CB[t] = bestCombos(ch, group, t, it.lv, cube, isAdd, 9999, aimKeys(ch, group)); });
+  const nearCombo = (t, x)=>{
+    let b = null, bd = Infinity;
+    (CB[t]||[]).forEach(r=>{ const d = Math.abs(r.v-x); if(d < bd){ bd = d; b = r; } });
+    return b ? b.parts.join(' ＋ ') : '';
+  };
+  const sv = (t, v) => p2(v) + '<s>' + (v>0 ? '≒ '+esc(nearCombo(t,v)) : '—') + '</s>';
 
-  /* ① 等級ごとの着地点。ものさしの実値で出すので、出る目だけが並ぶ。 */
+  /* ① 等級ごとの着地点 */
   let t1 = '';
-  TIER4.forEach(t=>{ const d=DU[t]; if(!d) return;
+  TIER4.forEach(t=>{ const d=D[t]; if(!d) return;
     let mx=0; d.forEach((p,v)=>{ if(v>mx) mx=v; });
     t1 += '<tr'+(t===grade?' class="here"':'')+'><td>'+tierPill(t)
       + (t===grade ? ' <span class="sub" style="display:inline">← 今ここ</span>' : '') + '</td>'
-      + '<td class="num">'+su(qAt(d,0.1))+'</td><td class="num">'+su(qAt(d,0.01))+'</td>'
-      + '<td class="num">'+su(qAt(d,0.001))+'</td><td class="num">'+su(mx)+'</td></tr>'; });
+      + '<td class="num">'+sv(t,qAt(d,0.1))+'</td><td class="num">'+sv(t,qAt(d,0.01))+'</td>'
+      + '<td class="num">'+sv(t,qAt(d,0.001))+'</td><td class="num">'+sv(t,mx)+'</td></tr>'; });
 
   /* ①' 一番伸びる組み合わせ（ものさし以外の行も混ぜて見る） */
   let t1b = '';
@@ -2388,8 +2402,8 @@ function growthPanel(sl, it, isAdd){
     + '<th class="num">その等級の最高</th>'
     + '</tr></thead><tbody>'+t1+'</tbody></table>'
     + '<p class="hint">「10個ぶん」＝ その数だけ回したときに一番良かったものの目安。'
-    + '<b>'+UN.full+'の合計だけ</b>を数えているので、出る目だけが並ぶ。'
-    + 'ボスダメージなど他の行の価値は入っていないので、それも混ぜた一番強い形は下の表で見る。</p></div>'
+    + '数字は<b>最終ダメ換算</b>で、ボスダメージやクリティカルダメージも含めた全部の行を数えている。'
+    + '下に添えてあるのは<b>それと同じくらいの中身</b>の例。</p></div>'
     + (t1b ? '<div class="dsec"><p class="cap">一番伸びる組み合わせ</p>'
         + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th><th>3行の中身</th>'
         + '<th class="num">最終ダメ換算</th></tr></thead><tbody>'+t1b+'</tbody></table></div>'
