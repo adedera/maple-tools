@@ -2730,7 +2730,7 @@ function potTable(ch, slotKey, it){
     rows.push({c, a, per, cost, eff: (a.p>0 && cost>0) ? a.gain/(cost/1e9) : 0});
   });
   if(!rows.length) return '<div class="dsec"><p class="cap">潜在</p><p class="hint">この部位・等級の排出率データが無い。</p></div>';
-  rows.sort((x,y)=> y.eff-x.eff);
+  rows.sort((x,y)=> (cubeOn(y.c)-cubeOn(x.c)) || (y.eff-x.eff));
   const cur = sumLines(it.pot, ch.conv);
   return '<div class="dsec"><p class="cap">潜在 — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
@@ -2784,7 +2784,7 @@ function addTable(ch, slotKey, it){
     rows.push({c, a, per, cost, eff:(a.p>0&&cost>0)?a.gain/(cost/1e9):0});
   });
   if(!rows.length) return '<div class="dsec"><p class="cap">アディ</p><p class="hint">この部位・等級の排出率データが無い。</p></div>';
-  rows.sort((x,y)=> y.eff-x.eff);
+  rows.sort((x,y)=> (cubeOn(y.c)-cubeOn(x.c)) || (y.eff-x.eff));
   const cur = sumLines(it.add, ch.conv);
   return '<div class="dsec"><p class="cap">アディ — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
@@ -2886,7 +2886,7 @@ function bindRow(b, slotKey){
     it.plans.push({type:ty, label:'', p: ty==='flame'?0.01:1,
       cost: ty==='flame' ? (flameCost(FLAMES[1])||0)
           : ty==='add'   ? cubeCost(CUBES.find(c=>c.k==='neoadd'))
-          : cubeCost(CUBES.find(c=>c.k==='master')),
+          : cubeCost(POT_CUBES.find(c=>cubeOn(c) && c.max==='レジェンダリー') || CUBES.find(c=>c.k==='master')),
       target: JSON.parse(JSON.stringify(seed))});
     redraw(); });
   b.querySelectorAll('[data-delplan]').forEach(x=> x.onclick = ()=>{
