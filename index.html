@@ -2127,10 +2127,18 @@ function growthUnit(ch, group){
 /* ものさし（攻撃力% や 主ステ%）の実値だけを見た分布。
    最終ダメ換算の分位点を割り戻すと「攻11%」のような<b>実際には出ない数字</b>になるので、
    着地点の表はこちらで出す。主ステのものさしでは、オールステータス%も主ステに足される。 */
-function unitLineVal(e, key){
+function rawLineVal(ch, s, lv){
+  if(!s) return 0;
+  const key = s[0];
+  if(key.indexOf('per9_')===0) return s[1] * Math.floor(Math.max(9,(+ch.charLv||260))/9);
+  return s[1] + lv250Bonus(key, lv);
+}
+function unitLineVal(ch, e, lv, key){
   if(!e.s) return 0;
-  if(e.s[0] === key) return e.s[1];
-  if(key !== 'atkPct' && key !== 'matkPct' && e.s[0] === 'allStatPct') return e.s[1];
+  const k = e.s[0].indexOf('per9_')===0 ? e.s[0].slice(5) : e.s[0];
+  if(k === key) return rawLineVal(ch, e.s, lv);
+  // 主ステのものさしでは、オールステータス%も主ステに足される
+  if(key !== 'atkPct' && key !== 'matkPct' && k === 'allStatPct') return rawLineVal(ch, e.s, lv);
   return 0;
 }
 function unitPool(ch, group, tier, lv, tbl, isAdd, key){
@@ -2141,7 +2149,7 @@ function unitPool(ch, group, tier, lv, tbl, isAdd, key){
   let tot = 0; use.forEach(e=> tot += pOf(e));
   if(tot<=0) return new Map();
   const m = new Map();
-  use.forEach(e=>{ const v = unitLineVal(e, key);
+  use.forEach(e=>{ const v = unitLineVal(ch, e, lv, key);
     m.set(v, (m.get(v)||0) + pOf(e)/tot); });
   return m;
 }
@@ -2157,6 +2165,54 @@ function unitDist(ch, group, tier, lv, cube, isAdd, key){
   const l3 = dL.size ? mixDist(dT, q3, dL, 1-q3) : dT;
   return convDist(convDist(dT, l2), l3);
 }
+/* ライン1本の短い表示名。「ボス40%」「攻12%」など。 */
+const PCTKEY = ['allStatPct','bossDmg','dmg','ignoreDef','critDmg','critRate'];
+function potLineLabel(ch, e, lv, isAdd){
+  const k = potStat(ch, e.s[0]); if(!k) return null;
+  const key = e.s[0].indexOf('per9_')===0 ? e.s[0].slice(5) : e.s[0];
+  const v = rawLineVal(ch, e.s, lv);
+  const isPct = /Pct$/.test(key) || PCTKEY.indexOf(key)>=0;
+  let nm = shortStat(k);
+  if(nm.slice(-1)==='%') nm = nm.slice(0,-1);   // 「攻%3%」にならないように
+  return nm + (Math.round(v*10)/10) + (isPct?'%':'');
+}
+/* その等級で出せる、最終ダメ換算が一番大きい組み合わせ。
+   1行目はその等級が確定、2・3行目は同じ等級かひとつ下。
+   ボスダメージと攻撃力%のように、種類をまたいだ組み合わせも見る。
+   同じオプションが複数行に出ることはあるので、重複も許す（ボス40%×3 など）。 */
+function bestCombos(ch, group, tier, lv, cube, isAdd, topN){
+  const ti = TIERS.indexOf(tier);
+  const ent = t=>{
+    const src = isAdd ? (((POT_DATA.add[group]||{})[t]) || [])
+                      : (((POT_DATA.slots[group]||{})[t]) || []);
+    const pOf = e => isAdd ? e.p : (cube.tbl==='p'?e.p:e.f);
+    const out = [];
+    src.forEach(e=>{
+      if((e.lv||0) > lv || !(pOf(e) > 0)) return;
+      const v = potLineValue(ch, e.s, lv, isAdd); if(!(v > 0)) return;
+      const l = potLineLabel(ch, e, lv, isAdd); if(!l) return;
+      out.push({v, l});
+    });
+    out.sort((a,b)=> b.v-a.v);
+    return out.slice(0, 8);          // 上位だけ見れば最大は決まる
+  };
+  const A = ent(tier); if(!A.length) return [];
+  const BC = A.concat(ti>0 ? ent(TIERS[ti-1]) : []);
+  const res = [];
+  A.forEach(a=> BC.forEach((b,bi)=> BC.forEach((c,ci)=>{
+    if(ci < bi) return;                       // 並び替えただけの重複を避ける
+    res.push({v:a.v+b.v+c.v, parts:[a.l,b.l,c.l]});
+  })));
+  res.sort((x,y)=> y.v-x.v);
+  const seen = new Set(), out = [];
+  for(const r of res){
+    const k = r.parts.slice().sort().join('|');
+    if(seen.has(k)) continue;
+    seen.add(k); out.push(r);
+    if(out.length >= (topN||3)) break;
+  }
+  return out;
+}
 /* その部位・等級で、ものさしの行が何%か。無ければ0。 */
 function mainPctLine(ch, group, tier, lv){
   const rows = ((POT_DATA.slots[group]||{})[tier]) || [];
@@ -2164,7 +2220,8 @@ function mainPctLine(ch, group, tier, lv){
   let best = 0;
   rows.forEach(r=>{ if(!r.s || r.s[0]!==key) return;
     if(r.lv && lv < r.lv) return;
-    if(r.s[1] > best) best = r.s[1]; });
+    const v = rawLineVal(ch, r.s, lv);
+    if(v > best) best = v; });
   return best;
 }
 /* 目標の刻み。1行目はその等級が確定、2・3行目は同じ等級かひとつ下。
@@ -2221,6 +2278,20 @@ function growthPanel(sl, it, isAdd){
       + (t===grade ? ' <span class="sub" style="display:inline">← 今ここ</span>' : '') + '</td>'
       + '<td class="num">'+su(qAt(d,0.1))+'</td><td class="num">'+su(qAt(d,0.01))+'</td>'
       + '<td class="num">'+su(qAt(d,0.001))+'</td><td class="num">'+su(mx)+'</td></tr>'; });
+
+  /* ①' 一番伸びる組み合わせ（ものさし以外の行も混ぜて見る） */
+  let t1b = '';
+  TIER4.forEach(t=>{
+    if(!D[t]) return;
+    const cb = bestCombos(ch, group, t, it.lv, cube, isAdd, t===grade ? 3 : 1);
+    cb.forEach((r,i)=>{
+      t1b += '<tr'+(t===grade?' class="here"':'')+'><td>'
+        + (i===0 ? tierPill(t) + (t===grade?' <span class="sub" style="display:inline">← 今ここ</span>':'')
+                 : '<span class="sub" style="display:inline">'+(i+1)+'番目</span>')
+        + '</td><td>'+esc(r.parts.join(' ＋ '))+'</td>'
+        + '<td class="num gain">'+p2(r.v)+'</td></tr>';
+    });
+  });
 
   /* ② 昇級にかかるもの（キューブ／書） */
   let t2 = '', t3 = '', upc = {};
@@ -2285,7 +2356,14 @@ function growthPanel(sl, it, isAdd){
     + '</tr></thead><tbody>'+t1+'</tbody></table>'
     + '<p class="hint">「10個ぶん」＝ その数だけ回したときに一番良かったものの目安。'
     + '<b>'+UN.full+'の合計だけ</b>を数えているので、出る目だけが並ぶ。'
-    + 'ボスダメージなど他の行の価値は入っていない（総合の伸びは上の「強化の見込み」で見る）。</p></div></div>'
+    + 'ボスダメージなど他の行の価値は入っていないので、それも混ぜた一番強い形は下の表で見る。</p></div>'
+    + (t1b ? '<div class="dsec"><p class="cap">一番伸びる組み合わせ</p>'
+        + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th><th>3行の中身</th>'
+        + '<th class="num">最終ダメ換算</th></tr></thead><tbody>'+t1b+'</tbody></table></div>'
+        + '<p class="hint">ものさし以外の行（ボスダメージ・防御率無視など）も混ぜて、'
+        + '<b>その等級で出せる一番強い3行</b>を全部の組み合わせから探したもの。今の等級は3番目まで出す。'
+        + '同じオプションが複数行に出ることはあるので、ボス40%×3 のような形も入れている。</p></div>' : '')
+    + '</div>'
     + (t2 ? '<div class="dsec"><p class="cap">キューブで昇級を狙う場合</p>'
         + '<div class="scrollx"><table class="mini gp"><thead><tr><th>昇級</th><th class="num">1回の確率</th>'
         + '<th class="num">平均</th><th class="num">中央</th><th class="num">平均の費用</th></tr></thead>'
