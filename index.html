@@ -456,6 +456,9 @@ function defSettings(){
     /* 候補に入れるか。強力・永遠はオークションの在庫次第で毎回取れる手とは限らないので、
        外せるようにしてある。外しても詳細の表には残る（見比べはできる）。 */
     flameUse:{ power:true, eternal:true, black:true, abyss:true },
+    /* キューブも同じ。名匠はユーザー間取引しか入手手段が無く、強力・永遠より流通が少ない。
+       数を揃えられないことのほうが多いので、ここだけ既定で外してある。 */
+    cubeUse:{ suspicious:true, craftsman:true, master:false, neo:true, mega:true, neoadd:true },
     /* 転生スコア(韓国で言う「추옵급」)の重み。主ステに換算した合計。
        主ステ×1・攻マ×4・オールステ%×10 は広く共通。ボスダメ・ダメージは資料でブレるので変えられる。
        出典: tools.devcomma.com の追加オプション計算機の既定値と namu.wiki「추가옵션」の記述。 */
@@ -509,6 +512,8 @@ function migrate(o){
   o.settings.price.cubeMel = Object.assign(defSettings().price.cubeMel, o.settings.price.cubeMel||{});
   o.settings.price.flameMel = Object.assign(defSettings().price.flameMel, o.settings.price.flameMel||{});
   o.settings.flameOwn = Object.assign(defSettings().flameOwn, o.settings.flameOwn||{});
+  o.settings.flameUse = Object.assign(defSettings().flameUse, o.settings.flameUse||{});
+  o.settings.cubeUse  = Object.assign(defSettings().cubeUse,  o.settings.cubeUse||{});
   o.settings.sf = Object.assign(defSettings().sf, o.settings.sf||{});
   // 旧形式(r/d/keep で持っていたもの)は作り直す。確率の意味が変わっているので引き継がない。
   if(!Array.isArray(o.settings.rows) || o.settings.rows.length!==30 || o.settings.rows[0].suc===undefined)
@@ -1674,6 +1679,7 @@ function candidates(){
     if(it.canPot && TIERS.indexOf(it.potGrade) >= 1 && (it.pot||[]).length){
       let best = null;
       POT_CUBES.forEach(c=>{
+        if(!cubeOn(c)) return;                  // 設定で外したキューブは「次の一手」に出さない
         const a = potAnalyze(ch, sl.k, it, c); if(!a || a.p<=0) return;
         const cost = cubeCost(c)/a.p;
         const eff = cost>0 ? a.gain/(cost/1e9) : 0;
@@ -1721,6 +1727,7 @@ function candidates(){
     if(it.canPot && TIERS.indexOf(it.addGrade) >= 1 && (it.add||[]).length){
       let ba=null;
       ADD_CUBES.forEach(c=>{
+        if(!cubeOn(c)) return;
         const a = potAnalyze(ch, sl.k, it, c, true); if(!a || a.p<=0) return;
         const cost = cubeCost(c)/a.p, eff = cost>0 ? a.gain/(cost/1e9) : 0;
         if(!ba || eff > ba.eff) ba = {c, a, cost, eff};
@@ -1753,6 +1760,8 @@ function flameText(fl){ return FLAMEF.filter(([k])=>+((fl||{})[k])).map(([k,n])=
    録で比べるときの共通言語なので、最終ダメ換算とは別に出す。 */
 /* その炎を候補に入れるか。設定が無ければ使う扱い。 */
 function flameOn(f){ return (S.settings.flameUse||{})[f.k] !== false; }
+/* そのキューブを候補に入れるか。設定が無ければ使う扱い。 */
+function cubeOn(c){ return (S.settings.cubeUse||{})[c.k] !== false; }
 function flameScore(fl){
   const w = (S.settings.score)||{}, f = fl||{};
   return (+f.mainStat||0)*(+w.mainStat||0) + (+f.subStat||0)*(+w.subStat||0)
@@ -2727,7 +2736,10 @@ function potTable(ch, slotKey, it){
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
     + '<th class="num">超える確率</th><th class="num">回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
-    + rows.map(r=>'<tr><td>'+esc(r.c.n)+(r.a.up>0?'<span class="sub">昇級 '+pct(r.a.up)+'</span>':'')+'</td>'
+    + rows.map(r=>'<tr><td'+(cubeOn(r.c)?'':' style="color:var(--faint)"')+'>'+esc(r.c.n)
+      + ((!cubeOn(r.c) || r.a.up>0)
+          ? '<span class="sub">'+[cubeOn(r.c)?'':'候補外',
+              r.a.up>0?'昇級 '+pct(r.a.up):''].filter(Boolean).join(' / ')+'</span>' : '')+'</td>'
       + '<td class="num">'+mel(r.per)+'</td>'
       + '<td class="num">'+(r.a.p>0?pct(r.a.p):'—')+'</td>'
       + '<td class="num">'+(r.a.p>0?(cnt(1/r.a.p).replace('個','回')
@@ -2778,7 +2790,10 @@ function addTable(ch, slotKey, it){
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
     + '<th class="num">超える確率</th><th class="num">回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
-    + rows.map(r=>'<tr><td>'+esc(r.c.n)+(r.a.up>0?'<span class="sub">昇級 '+pct(r.a.up)+'</span>':'')+'</td>'
+    + rows.map(r=>'<tr><td'+(cubeOn(r.c)?'':' style="color:var(--faint)"')+'>'+esc(r.c.n)
+      + ((!cubeOn(r.c) || r.a.up>0)
+          ? '<span class="sub">'+[cubeOn(r.c)?'':'候補外',
+              r.a.up>0?'昇級 '+pct(r.a.up):''].filter(Boolean).join(' / ')+'</span>' : '')+'</td>'
       + '<td class="num">'+mel(r.per)+'</td>'
       + '<td class="num">'+(r.a.p>0?pct(r.a.p):'—')+'</td>'
       + '<td class="num">'+(r.a.p>0?(cnt(1/r.a.p).replace('個','回')
@@ -3023,15 +3038,21 @@ function renderSetPrice(){
    +'メルマーケットは1億メルあたり何ポイントで表示されるので、左にその数字を入れれば右は自動で出る。'
    +'どちらを直してももう片方が追従する。初期値（1億メル=125P / 1P=80万メル）は推定値。</p>'
    +'<details open style="margin-top:9px"><summary>キューブ1個の値段</summary>'
-   +'<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th>値段</th><th class="num">1個</th></tr></thead><tbody>'
-   + CUBES.map(c=>'<tr><td>'+esc(c.n)+'<span class="sub">'+(c.addOnly?'アディ専用・自動計算なし':'〜'+c.max)+'</span></td>'
+   +'<div class="scrollx"><table class="mini"><thead><tr><th class="num">使う</th><th>キューブ</th>'
+   +'<th>値段</th><th class="num">1個</th></tr></thead><tbody>'
+   + CUBES.map(c=>'<tr><td class="num"><input type="checkbox" data-cuse="'+c.k+'"'+(cubeOn(c)?' checked':'')+'></td>'
+     + '<td'+(cubeOn(c)?'':' style="color:var(--faint)"')+'>'+esc(c.n)+'<span class="sub">'+(c.addOnly?'アディ専用・自動計算なし':'〜'+c.max)+'</span></td>'
      + '<td>'+(c.mel!==undefined
          ? '<input type="text" data-cube="'+c.k+'" value="'+mel(cubeCost(c))+'" style="width:110px">'
          : (p.use11 ? (c.pt11+'P / 11個') : (c.pt+'P')))+'</td>'
      + '<td class="num">'+mel(cubeCost(c))+'</td></tr>').join('')
    +'</tbody></table></div>'
    +'<p class="hint">メル建てのキューブはオークションの相場で動くので、ここは直接書き換える。'
-   +'「40m」「1.2G」「40000000」のどれでも入る。空にすると初期値に戻る。</p></details></div>'
+   +'「40m」「1.2G」「40000000」のどれでも入る。空にすると初期値に戻る。<br>'
+   +'<b>「使う」を外すと「次の一手」の候補から消える</b>。'
+   +'<b>名匠のキューブは既定で外してある</b> — ユーザー間取引でしか手に入らず、'
+   +'強力・永遠の炎より流通が少なくて数を揃えられないため。'
+   +'外しても装備を開いたときの表には残るので、見比べはできる。</p></details></div>'
    +'<div class="sect"><h4>転生の炎</h4>'
    +'<div class="scrollx"><table class="mini"><thead><tr><th class="num">使う</th><th>炎</th><th>入手</th>'
    +'<th class="num">1個のメル</th><th class="num">手持ち</th></tr></thead><tbody>'
@@ -3087,6 +3108,8 @@ function renderSetPrice(){
     S.settings.flameOwn[i.dataset.flown] = Math.max(0, +i.value||0); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-scr]').forEach(i=> i.onchange = ()=>{
     S.settings.price.scroll[i.dataset.scr] = parseMel(i.value); save(); redrawKeep(); });
+  $('box-price').querySelectorAll('[data-cuse]').forEach(i=> i.onchange = ()=>{
+    S.settings.cubeUse[i.dataset.cuse] = i.checked; save(); renderSetPrice(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-fluse]').forEach(i=> i.onchange = ()=>{
     S.settings.flameUse[i.dataset.fluse] = i.checked; save(); renderSetPrice(); redrawKeep(); });
   $('use11').onchange = ()=>{ p.use11 = $('use11').checked; save(); redrawKeep(); };
