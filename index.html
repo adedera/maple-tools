@@ -2113,10 +2113,21 @@ const SCROLLS = [
 ];
 function scrollCost(s){ const v = +((S.settings.price.scroll||{})[s.k]); return v>0 ? v*100/s.p : 0; }
 
-/* その部位・等級で主ステ%の行が何%か。無ければ0。 */
+/* 部位ごとの「ものさし」。
+   武器・補助武器・エンブレムは攻撃力%（魔法職なら魔力%）が最優先なのでそれで測る。
+   ここを主ステ%にすると、ボスダメ40%×3 のような行を主ステに換算してしまって
+   「主189%」のような意味のない数字になる。 */
+function growthUnit(ch, group){
+  if(group==='weapon' || group==='sub' || group==='sub2' || group==='emblem'){
+    const m = ch.atkKind==='matk';
+    return {key:(m?'matkPct':'atkPct'), label:(m?'魔':'攻'), full:(m?'魔力%':'攻撃力%'), conv:ch.conv.atkPct};
+  }
+  return {key:(ch.main||'STR')+'Pct', label:'主', full:'主ステータス%', conv:ch.conv.mainStatPct};
+}
+/* その部位・等級で、ものさしの行が何%か。無ければ0。 */
 function mainPctLine(ch, group, tier, lv){
   const rows = ((POT_DATA.slots[group]||{})[tier]) || [];
-  const key = (ch.main||'STR')+'Pct';
+  const key = growthUnit(ch, group).key;
   let best = 0;
   rows.forEach(r=>{ if(!r.s || r.s[0]!==key) return;
     if(r.lv && lv < r.lv) return;
@@ -2150,7 +2161,7 @@ function growthPanel(sl, it, isAdd){
   const cube = CUBES.find(c=> c.k === (isAdd ? 'neoadd' : 'mega'));
   if(!cube) return '';
   const C0 = cubeCost(cube), U = (POT_DATA.cubes[cube.d]||{}).up || {};
-  const unit = ch.conv.mainStatPct || 0;
+  const UN = growthUnit(ch, group), unit = UN.conv || 0;
   if(!(unit>0) || !(C0>0)) return '';
   const cur = sumLines(isAdd ? it.add : it.pot, ch.conv);
   const ti = Math.max(1, TIER4.indexOf(grade));
@@ -2162,7 +2173,7 @@ function growthPanel(sl, it, isAdd){
   const qAt = (d,q)=>{ const xs=[...d.entries()].sort((a,b)=>b[0]-a[0]); let a=0;
     for(const e of xs){ a+=e[1]; if(a>=q) return e[0]; } return 0; };
   const tailP = (d,x)=>{ let s=0; d.forEach((p,v)=>{ if(v>=x-1e-9) s+=p; }); return s; };
-  const st = v => '主'+Math.round(v/unit)+'%<s>'+p2(v)+'</s>';
+  const st = v => UN.label+Math.round(v/unit)+'%<s>'+p2(v)+'</s>';
 
   /* ① 等級ごとの着地点 */
   let t1 = '';
@@ -2199,6 +2210,7 @@ function growthPanel(sl, it, isAdd){
   /* ③ どこまで狙うなら、どの等級か */
   const heads = TIER4.slice(ti);
   const ladder = growthLadder(ch, group, it.lv, grade);
+  const LIMIT = 1e12;        // 1兆メルを超えたら「届かない」扱い。桁を出しても意味がない。
   let t4 = '', advice = [], prev = null;
   ladder.forEach(L=>{
     const X = L.sum*unit;
@@ -2212,14 +2224,14 @@ function growthPanel(sl, it, isAdd){
       const d = D[t], p = d ? tailP(d, X) : 0;
       const c = (ok && p>0) ? add + C0/p : Infinity;
       cells.push([c, t]);
-      if(isFinite(c) && (!best || c < best[0])) best = [c, t];
+      if(c < LIMIT && (!best || c < best[0])) best = [c, t];
     });
-    if(!best) return;
-    if(prev && prev !== best[1]) advice.push('主'+L.sum+'% から'+tierPill(best[1]));
+    if(!best) return;                                 // どのルートも現実的でない行は出さない
+    if(prev && prev !== best[1]) advice.push(UN.label+L.sum+'% から'+tierPill(best[1]));
     prev = best[1];
-    t4 += '<tr><td>主'+L.sum+'%<s>'+L.parts+'　'+p2(X)+'</s></td>'
+    t4 += '<tr><td>'+UN.label+L.sum+'%<s>'+L.parts+'　'+p2(X)+'</s></td>'
       + cells.map(([c,t])=>'<td class="num'+(best[1]===t?' gain':'')+'">'
-          + (isFinite(c) ? mel(c) : '<span style="color:var(--faint)">—</span>')+'</td>').join('')
+          + (c < LIMIT ? mel(c) : '<span style="color:var(--faint)">—</span>')+'</td>').join('')
       + '<td class="num">'+tierPill(best[1])+'</td></tr>';
   });
 
@@ -2249,7 +2261,7 @@ function growthPanel(sl, it, isAdd){
         + heads.map(t=>'<th class="num">'+t+(t===grade?'のまま':'へ')+'</th>').join('')
         + '<th class="num">安いのは</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
         + (advice.length ? '<p class="hint"><b style="color:var(--ok)">'+advice.join(' / ')+'</b> を目指したほうが安い。</p>' : '')
-        + '<p class="hint">目標は、その部位で実際に出る主ステ%の行の組み合わせ。'
+        + '<p class="hint">目標は、その部位で実際に出る<b>'+UN.full+'</b>の行の組み合わせ。'
         + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。</p></div>' : '')
     + '</div>';
 }
