@@ -2180,7 +2180,14 @@ function potLineLabel(ch, e, lv, isAdd){
    1行目はその等級が確定、2・3行目は同じ等級かひとつ下。
    ボスダメージと攻撃力%のように、種類をまたいだ組み合わせも見る。
    同じオプションが複数行に出ることはあるので、重複も許す（ボス40%×3 など）。 */
-function bestCombos(ch, group, tier, lv, cube, isAdd, topN){
+/* 目標として並べるときに使う行の系統。寄せ集めの組み合わせを目標にしても仕方ないので、
+   実際に狙う2系統（武器なら攻撃力%とボスダメージ、ほかは主ステ%とオールステ%）に絞る。 */
+function aimKeys(ch, group){
+  const u = growthUnit(ch, group);
+  return (u.key==='atkPct' || u.key==='matkPct')
+    ? [u.key, 'bossDmg', 'dmg'] : [u.key, 'allStatPct'];
+}
+function bestCombos(ch, group, tier, lv, cube, isAdd, topN, keys){
   const ti = TIERS.indexOf(tier);
   const ent = t=>{
     const src = isAdd ? (((POT_DATA.add[group]||{})[t]) || [])
@@ -2189,6 +2196,11 @@ function bestCombos(ch, group, tier, lv, cube, isAdd, topN){
     const out = [];
     src.forEach(e=>{
       if((e.lv||0) > lv || !(pOf(e) > 0)) return;
+      if(keys){
+        if(!e.s) return;
+        const k0 = e.s[0].indexOf('per9_')===0 ? e.s[0].slice(5) : e.s[0];
+        if(keys.indexOf(k0) < 0) return;
+      }
       const v = potLineValue(ch, e.s, lv, isAdd); if(!(v > 0)) return;
       const l = potLineLabel(ch, e, lv, isAdd); if(!l) return;
       out.push({v, l});
@@ -2201,7 +2213,7 @@ function bestCombos(ch, group, tier, lv, cube, isAdd, topN){
   const res = [];
   A.forEach(a=> BC.forEach((b,bi)=> BC.forEach((c,ci)=>{
     if(ci < bi) return;                       // 並び替えただけの重複を避ける
-    res.push({v:a.v+b.v+c.v, parts:[a.l,b.l,c.l]});
+    res.push({v:a.v+b.v+c.v, parts:[a,b,c].sort((x,y)=>y.v-x.v).map(z=>z.l)});
   })));
   res.sort((x,y)=> y.v-x.v);
   const seen = new Set(), out = [];
@@ -2224,23 +2236,32 @@ function mainPctLine(ch, group, tier, lv){
     if(v > best) best = v; });
   return best;
 }
-/* 目標の刻み。1行目はその等級が確定、2・3行目は同じ等級かひとつ下。
-   出る目のある合計だけを、組み合わせ付きで並べる。 */
-function growthLadder(ch, group, lv, from){
-  const out = new Map();
+/* 目標の刻み。各等級の「強い組み合わせ」を実際に作って並べる。
+   ものさし（攻撃力%や主ステ%）だけで刻むと、武器のボスダメージのような
+   別系統の行が目標に出てこない。組み合わせから作れば、
+   「ボス40+ボス40+攻12」のような現実の狙い目がそのまま目標になる。 */
+function growthLadder(ch, group, lv, cube, isAdd, from, cur, rungs){
+  const all = new Map();
   for(let i=Math.max(1,TIER4.indexOf(from)); i<TIER4.length; i++){
-    const t = TIER4[i], v = mainPctLine(ch, group, t, lv);
-    if(!v) continue;
-    const w = i>0 ? mainPctLine(ch, group, TIER4[i-1], lv) : 0;
-    const side = [0, w, v].filter((x,j,a)=> x>0 || j===0).filter((x,j,a)=>a.indexOf(x)===j);
-    side.forEach(a=> side.forEach(b=>{
-      if(b > a) return;                       // 同じ組み合わせを2度数えない
-      const sum = v + a + b;
-      const parts = [v, a, b].filter(x=>x>0).sort((x,y)=>y-x).join('+');
-      if(!out.has(sum)) out.set(sum, {sum, parts, tier:t});
-    }));
+    const t = TIER4[i];
+    bestCombos(ch, group, t, lv, cube, isAdd, 9999, aimKeys(ch, group)).forEach(r=>{
+      const k = Math.round(r.v*100)/100;
+      if(k <= cur + 0.01) return;                    // 今より下は目標にならない
+      if(!all.has(k)) all.set(k, {v:r.v, parts:r.parts.join(' ＋ '), tier:t});
+    });
   }
-  return [...out.values()].sort((a,b)=>a.sum-b.sum);
+  const list = [...all.values()].sort((a,b)=> a.v-b.v);
+  const N = rungs || 8;
+  if(list.length <= N) return list;
+  // 上位だけ並べると手の届く目標が消えるので、今の値から最高まで均等に拾う
+  const lo = list[0].v, hi = list[list.length-1].v, out = [], used = new Set();
+  for(let k=1; k<=N; k++){
+    const want = lo + (hi-lo)*(k-1)/(N-1);
+    let bi = 0, bd = Infinity;
+    list.forEach((r,i)=>{ const d = Math.abs(r.v-want); if(d < bd && !used.has(i)){ bd = d; bi = i; } });
+    if(!used.has(bi)){ used.add(bi); out.push(list[bi]); }
+  }
+  return out.sort((a,b)=> a.v-b.v);
 }
 
 function growthPanel(sl, it, isAdd){
@@ -2318,11 +2339,11 @@ function growthPanel(sl, it, isAdd){
 
   /* ③ どこまで狙うなら、どの等級か */
   const heads = TIER4.slice(ti);
-  const ladder = growthLadder(ch, group, it.lv, grade);
+  const ladder = growthLadder(ch, group, it.lv, cube, isAdd, grade, cur, 8);
   const LIMIT = 1e12;        // 1兆メルを超えたら「届かない」扱い。桁を出しても意味がない。
   let t4 = '', advice = [], prev = null;
   ladder.forEach(L=>{
-    const X = L.sum*unit;
+    const X = L.v;
     if(X <= cur + 1e-9) return;                       // 今より下は出さない
     let best = null; const cells = [];
     heads.forEach(t=>{
@@ -2336,9 +2357,9 @@ function growthPanel(sl, it, isAdd){
       if(c < LIMIT && (!best || c < best[0])) best = [c, t];
     });
     if(!best) return;                                 // どのルートも現実的でない行は出さない
-    if(prev && prev !== best[1]) advice.push(UN.label+L.sum+'% から'+tierPill(best[1]));
+    if(prev && prev !== best[1]) advice.push(UN.label+Math.round(X/unit)+'%相当 から'+tierPill(best[1]));
     prev = best[1];
-    t4 += '<tr><td>'+UN.label+L.sum+'%<s>'+L.parts+'　'+p2(X)+'</s></td>'
+    t4 += '<tr><td>'+esc(L.parts)+'<s>'+p2(X)+'　'+UN.label+Math.round(X/unit)+'%相当</s></td>'
       + cells.map(([c,t])=>'<td class="num'+(best[1]===t?' gain':'')+'">'
           + (c < LIMIT ? mel(c) : '<span style="color:var(--faint)">—</span>')+'</td>').join('')
       + '<td class="num">'+tierPill(best[1])+'</td></tr>';
@@ -2382,9 +2403,10 @@ function growthPanel(sl, it, isAdd){
         + heads.map(t=>'<th class="num">'+t+(t===grade?'のまま':'へ')+'</th>').join('')
         + '<th class="num">安いのは</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
         + (advice.length ? '<p class="hint"><b style="color:var(--ok)">'+advice.join(' / ')+'</b> を目指したほうが安い。</p>' : '')
-        + '<p class="hint">目標は、その部位で実際に出る<b>'+UN.full+'</b>の行の組み合わせ。'
+        + '<p class="hint">目標は<b>その等級で実際に出せる3行の組み合わせ</b>。'
+        + 'ボスダメージも含めて、強いものから順に並べている。'
         + '費用は<b>その目標と同じだけ最終ダメ換算が伸びるまで</b>なので、'
-        + 'ボスダメージなど別の行で同じ伸びに届いた場合も数えている。'
+        + '別の組み合わせで同じ伸びに届いた場合も数えている。'
         + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。</p></div>' : '')
     + '</div>';
 }
