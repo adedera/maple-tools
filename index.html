@@ -2124,6 +2124,39 @@ function growthUnit(ch, group){
   }
   return {key:(ch.main||'STR')+'Pct', label:'主', full:'主ステータス%', conv:ch.conv.mainStatPct};
 }
+/* ものさし（攻撃力% や 主ステ%）の実値だけを見た分布。
+   最終ダメ換算の分位点を割り戻すと「攻11%」のような<b>実際には出ない数字</b>になるので、
+   着地点の表はこちらで出す。主ステのものさしでは、オールステータス%も主ステに足される。 */
+function unitLineVal(e, key){
+  if(!e.s) return 0;
+  if(e.s[0] === key) return e.s[1];
+  if(key !== 'atkPct' && key !== 'matkPct' && e.s[0] === 'allStatPct') return e.s[1];
+  return 0;
+}
+function unitPool(ch, group, tier, lv, tbl, isAdd, key){
+  const src = isAdd ? (((POT_DATA.add[group]||{})[tier]) || [])
+                    : (((POT_DATA.slots[group]||{})[tier]) || []);
+  const pOf = e => isAdd ? e.p : (tbl==='p'?e.p:e.f);
+  const use = src.filter(e=> (e.lv||0) <= lv && pOf(e) > 0);
+  let tot = 0; use.forEach(e=> tot += pOf(e));
+  if(tot<=0) return new Map();
+  const m = new Map();
+  use.forEach(e=>{ const v = unitLineVal(e, key);
+    m.set(v, (m.get(v)||0) + pOf(e)/tot); });
+  return m;
+}
+function unitDist(ch, group, tier, lv, cube, isAdd, key){
+  const ti = TIERS.indexOf(tier);
+  const o = ((POT_DATA.cubes[cube.d]||{}).opt||{})[tier] || {};
+  const q2 = ((o['2']!==undefined?o['2']:o['23'])||0)/100;
+  const q3 = ((o['3']!==undefined?o['3']:o['23'])||0)/100;
+  const dT = unitPool(ch, group, tier, lv, cube.tbl, isAdd, key);
+  const dL = ti>0 ? unitPool(ch, group, TIERS[ti-1], lv, cube.tbl, isAdd, key) : new Map();
+  if(!dT.size) return null;
+  const l2 = dL.size ? mixDist(dT, q2, dL, 1-q2) : dT;
+  const l3 = dL.size ? mixDist(dT, q3, dL, 1-q3) : dT;
+  return convDist(convDist(dT, l2), l3);
+}
 /* その部位・等級で、ものさしの行が何%か。無ければ0。 */
 function mainPctLine(ch, group, tier, lv){
   const rows = ((POT_DATA.slots[group]||{})[tier]) || [];
@@ -2166,23 +2199,28 @@ function growthPanel(sl, it, isAdd){
   const cur = sumLines(isAdd ? it.add : it.pot, ch.conv);
   const ti = Math.max(1, TIER4.indexOf(grade));
 
-  const D = {};
-  TIER4.forEach(t=>{ const d = potDist(ch, group, t, it.lv, cube, isAdd); if(d) D[t] = d; });
+  const D = {}, DU = {};
+  TIER4.forEach(t=>{
+    const d = potDist(ch, group, t, it.lv, cube, isAdd); if(d) D[t] = d;
+    const u = unitDist(ch, group, t, it.lv, cube, isAdd, UN.key); if(u) DU[t] = u;
+  });
   if(!Object.keys(D).length) return '';
 
   const qAt = (d,q)=>{ const xs=[...d.entries()].sort((a,b)=>b[0]-a[0]); let a=0;
     for(const e of xs){ a+=e[1]; if(a>=q) return e[0]; } return 0; };
   const tailP = (d,x)=>{ let s=0; d.forEach((p,v)=>{ if(v>=x-1e-9) s+=p; }); return s; };
   const st = v => UN.label+Math.round(v/unit)+'%<s>'+p2(v)+'</s>';
+  /* ものさしの実値 n% を出す。換算は n%ぶんの値。 */
+  const su = n => UN.label+n+'%<s>'+p2(n*unit)+'</s>';
 
-  /* ① 等級ごとの着地点 */
+  /* ① 等級ごとの着地点。ものさしの実値で出すので、出る目だけが並ぶ。 */
   let t1 = '';
-  TIER4.forEach(t=>{ const d=D[t]; if(!d) return;
+  TIER4.forEach(t=>{ const d=DU[t]; if(!d) return;
     let mx=0; d.forEach((p,v)=>{ if(v>mx) mx=v; });
     t1 += '<tr'+(t===grade?' class="here"':'')+'><td>'+tierPill(t)
       + (t===grade ? ' <span class="sub" style="display:inline">← 今ここ</span>' : '') + '</td>'
-      + '<td class="num">'+st(qAt(d,0.2))+'</td><td class="num">'+st(qAt(d,0.05))+'</td>'
-      + '<td class="num">'+st(qAt(d,0.01))+'</td><td class="num">'+st(mx)+'</td></tr>'; });
+      + '<td class="num">'+su(qAt(d,0.1))+'</td><td class="num">'+su(qAt(d,0.01))+'</td>'
+      + '<td class="num">'+su(qAt(d,0.001))+'</td><td class="num">'+su(mx)+'</td></tr>'; });
 
   /* ② 昇級にかかるもの（キューブ／書） */
   let t2 = '', t3 = '', upc = {};
@@ -2240,9 +2278,14 @@ function growthPanel(sl, it, isAdd){
     + '<div class="dsec" style="border-top:0;margin-top:0;padding-top:0">'
     + '<p class="cap">等級ごとに、どのへんに着地するか</p>'
     + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th>'
-    + '<th class="num">よくある着地<span class="sub" style="font-weight:400">上位20%</span></th>'
-    + '<th class="num">上位5%</th><th class="num">上位1%</th><th class="num">その等級の最高</th>'
-    + '</tr></thead><tbody>'+t1+'</tbody></table></div></div>'
+    + '<th class="num">10個ぶん<span class="sub" style="font-weight:400">上位10%</span></th>'
+    + '<th class="num">100個ぶん<span class="sub" style="font-weight:400">上位1%</span></th>'
+    + '<th class="num">1000個ぶん<span class="sub" style="font-weight:400">上位0.1%</span></th>'
+    + '<th class="num">その等級の最高</th>'
+    + '</tr></thead><tbody>'+t1+'</tbody></table>'
+    + '<p class="hint">「10個ぶん」＝ その数だけ回したときに一番良かったものの目安。'
+    + '<b>'+UN.full+'の合計だけ</b>を数えているので、出る目だけが並ぶ。'
+    + 'ボスダメージなど他の行の価値は入っていない（総合の伸びは上の「強化の見込み」で見る）。</p></div></div>'
     + (t2 ? '<div class="dsec"><p class="cap">キューブで昇級を狙う場合</p>'
         + '<div class="scrollx"><table class="mini gp"><thead><tr><th>昇級</th><th class="num">1回の確率</th>'
         + '<th class="num">平均</th><th class="num">中央</th><th class="num">平均の費用</th></tr></thead>'
@@ -2262,6 +2305,8 @@ function growthPanel(sl, it, isAdd){
         + '<th class="num">安いのは</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
         + (advice.length ? '<p class="hint"><b style="color:var(--ok)">'+advice.join(' / ')+'</b> を目指したほうが安い。</p>' : '')
         + '<p class="hint">目標は、その部位で実際に出る<b>'+UN.full+'</b>の行の組み合わせ。'
+        + '費用は<b>その目標と同じだけ最終ダメ換算が伸びるまで</b>なので、'
+        + 'ボスダメージなど別の行で同じ伸びに届いた場合も数えている。'
         + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。</p></div>' : '')
     + '</div>';
 }
