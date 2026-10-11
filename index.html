@@ -1694,7 +1694,7 @@ function candidates(){
       });
       if(best) out.push({kind:'pot', slot:sl, item:it,
         label: best.c.n + 'で引き直す', auto:true, cube:best.c, an:best.a,
-        detail: it.potGrade + ' / 成功率 ' + pct(best.a.p) + ' / 平均 '
+        detail: it.potGrade + ' / 1回で超える確率 ' + pct(best.a.p) + ' / 平均 '
               + cnt(1/best.a.p).replace('個','回') + ' × ' + mel(cubeCost(best.c))
               + (best.a.up>0 ? ' / 昇級 '+pct(best.a.up) : ''),
         gain: best.a.gain, cost: best.cost, p: best.a.p, per: cubeCost(best.c)});
@@ -1721,12 +1721,12 @@ function candidates(){
       if(bFree) out.push({kind:'flame', slot:sl, item:it, auto:true, flame:bFree.f, an:bFree.a,
         free:true, units:1/bFree.a.p, own:bFree.own, perGain:bFree.perGain,
         label: bFree.f.n + 'で引き直す',
-        detail: '手持ち ' + bFree.own + '個 / 超える確率 ' + pct(bFree.a.p)
+        detail: '手持ち ' + bFree.own + '個 / 1個で超える確率 ' + pct(bFree.a.p)
               + ' / 平均 ' + cnt(1/bFree.a.p) + '・中央 ' + cnt(medTries(bFree.a.p)),
         gain: bFree.a.gain, cost: 0, p: bFree.a.p, per: 0});
       if(bf) out.push({kind:'flame', slot:sl, item:it, auto:true, flame:bf.f, an:bf.a,
         label: bf.f.n + 'で引き直す',
-        detail: '超える確率 ' + pct(bf.a.p) + ' / 平均 '
+        detail: '1個で超える確率 ' + pct(bf.a.p) + ' / 平均 '
               + cnt(1/bf.a.p) + ' × ' + mel(bf.per),
         gain: bf.a.gain, cost: bf.cost, p: bf.a.p, per: bf.per});
     }
@@ -1741,7 +1741,7 @@ function candidates(){
       });
       if(ba) out.push({kind:'pot', slot:sl, item:it, auto:true, cube:ba.c, an:ba.a,
         label: ba.c.n + 'で引き直す',
-        detail: 'アディ ' + it.addGrade + ' / 成功率 ' + pct(ba.a.p) + ' / 平均 '
+        detail: 'アディ ' + it.addGrade + ' / 1回で超える確率 ' + pct(ba.a.p) + ' / 平均 '
               + cnt(1/ba.a.p).replace('個','回') + ' × ' + mel(cubeCost(ba.c)),
         gain: ba.a.gain, cost: ba.cost, p: ba.a.p, per: cubeCost(ba.c)});
     }
@@ -1984,7 +1984,7 @@ function renderGrid(){
   }
   const head = '<tr><th>部位</th><th>装備</th><th class="num">★</th><th class="num">潜在</th>'
     +'<th class="num">アディ</th><th class="num">転生</th><th>次の一手</th>'
-    + (own ? '<th class="num">個数</th><th class="num">1個あたり</th><th class="num">手持ちで届く</th>'
+    + (own ? '<th class="num">平均個数</th><th class="num">1個あたり</th><th class="num">手持ちで届く</th>'
            : '<th class="num">かかるメル</th><th class="num">1Gあたり</th>'
              + (bud>0 ? '<th class="num">累計</th><th class="num">届く確率</th>' : ''))
     + '</tr>';
@@ -2741,7 +2741,7 @@ function potTable(ch, slotKey, it){
   const cur = sumLines(it.pot, ch.conv);
   return '<div class="dsec"><p class="cap">潜在 — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
-    + '<th class="num">超える確率</th><th class="num">回数</th><th class="num">かかるメル</th>'
+    + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
     + rows.map(r=>'<tr><td'+(cubeOn(r.c)?'':' style="color:var(--faint)"')+'>'+esc(r.c.n)
       + ((!cubeOn(r.c) || r.a.up>0)
@@ -2795,7 +2795,7 @@ function addTable(ch, slotKey, it){
   const cur = sumLines(it.add, ch.conv);
   return '<div class="dsec"><p class="cap">アディ — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
-    + '<th class="num">超える確率</th><th class="num">回数</th><th class="num">かかるメル</th>'
+    + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
     + rows.map(r=>'<tr><td'+(cubeOn(r.c)?'':' style="color:var(--faint)"')+'>'+esc(r.c.n)
       + ((!cubeOn(r.c) || r.a.up>0)
@@ -2834,8 +2834,8 @@ function flameTable(ch, slotKey, it){
     + '<p class="hint" style="margin:0 0 6px">今 <b style="color:var(--fl)">'+p2(cur)+'</b>'
     + '　／　上限 <b>'+p2(best)+'</b>　／　伸びしろ <b style="color:'+(room<0.3?'var(--warn)':'var(--ok)')+'">'+p2(room)+'</b>'
     + (room<0.3 ? '　上限に近いので、超えるのはかなり難しい' : '') + '</p>'
-    + '<div class="scrollx"><table class="mini"><thead><tr><th>炎</th><th class="num">超える確率</th>'
-    + '<th class="num">個数</th><th class="num">かかるメル</th><th class="num">成功時</th>'
+    + '<div class="scrollx"><table class="mini"><thead><tr><th>炎</th><th class="num">1個で超える確率</th>'
+    + '<th class="num">平均個数</th><th class="num">かかるメル</th><th class="num">成功時</th>'
     + '<th class="num">1Gあたり</th><th class="num">手持ちで届く</th></tr></thead><tbody>'
     + rows.map(r=>'<tr'+(flameOn(r.f)?'':' style="opacity:.5"')+'><td>'+esc(r.f.n)
       + (flameOn(r.f)?'':'<span class="sub">使わない設定</span>')
