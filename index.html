@@ -2185,7 +2185,9 @@ function potLineLabel(ch, e, lv, isAdd){
 function aimKeys(ch, group){
   const u = growthUnit(ch, group);
   return (u.key==='atkPct' || u.key==='matkPct')
-    ? [u.key, 'bossDmg', 'dmg'] : [u.key, 'allStatPct'];
+    ? [u.key, 'bossDmg', 'dmg']
+    // critDmg は手袋のレジェンダリーにだけ出る。無い部位では何も起きない。
+    : [u.key, 'allStatPct', 'critDmg'];
 }
 function bestCombos(ch, group, tier, lv, cube, isAdd, topN, keys){
   const ti = TIERS.indexOf(tier);
@@ -2357,17 +2359,27 @@ function growthPanel(sl, it, isAdd){
       if(c < LIMIT && (!best || c < best[0])) best = [c, t];
     });
     if(!best) return;                                 // どのルートも現実的でない行は出さない
-    if(prev && prev !== best[1]) advice.push(UN.label+Math.round(X/unit)+'%相当 から'+tierPill(best[1]));
+    if(prev && prev !== best[1]) advice.push(p2(X)+'（'+esc(L.parts)+'）から'+tierPill(best[1]));
     prev = best[1];
-    t4 += '<tr><td>'+esc(L.parts)+'<s>'+p2(X)+'　'+UN.label+Math.round(X/unit)+'%相当</s></td>'
+    const pureUnit = L.parts.indexOf(UN.label)===0 && !/クリダメ|ボス|ダメ\d|無視/.test(L.parts);
+    t4 += '<tr><td>'+esc(L.parts)+'<s>'+p2(X)
+        + (pureUnit ? '　'+UN.label+Math.round(X/unit)+'%相当' : '')+'</s></td>'
       + cells.map(([c,t])=>'<td class="num'+(best[1]===t?' gain':'')+'">'
           + (c < LIMIT ? mel(c) : '<span style="color:var(--faint)">—</span>')+'</td>').join('')
       + '<td class="num">'+tierPill(best[1])+'</td></tr>';
   });
 
+  // 必要レベルで絞っているので、装備レベルが入っていないと強い行が消える。
+  // 手袋のクリティカルダメージ(必要Lv50)で実際に起きたので知らせる。
+  const lvWarn = ((+it.lv||0) < 50)
+    ? '<p class="hint" style="color:var(--warn)">装備レベルが '+(+it.lv||0)+' になっている。'
+      + '必要レベルの高い能力（手袋のクリティカルダメージなど）が候補から外れるので、'
+      + '左の<b>装備レベル</b>を直すと結果が変わる。</p>' : '';
+
   return '<div class="dcard growth"><h5>育成計画（'+(isAdd?'アディ潜在':'上潜在')+'）'
     + '<span class="sp">'+esc(cube.n)+' '+mel(C0)+'/個</span></h5>'
     + '<div class="dsec" style="border-top:0;margin-top:0;padding-top:0">'
+    + lvWarn
     + '<p class="cap">等級ごとに、どのへんに着地するか</p>'
     + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th>'
     + '<th class="num">10個ぶん<span class="sub" style="font-weight:400">上位10%</span></th>'
