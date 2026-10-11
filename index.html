@@ -2196,15 +2196,10 @@ function potLineLabel(ch, e, lv, isAdd){
    1行目はその等級が確定、2・3行目は同じ等級かひとつ下。
    ボスダメージと攻撃力%のように、種類をまたいだ組み合わせも見る。
    同じオプションが複数行に出ることはあるので、重複も許す（ボス40%×3 など）。 */
-/* 目標として並べるときに使う行の系統。寄せ集めの組み合わせを目標にしても仕方ないので、
-   実際に狙う2系統（武器なら攻撃力%とボスダメージ、ほかは主ステ%とオールステ%）に絞る。 */
-function aimKeys(ch, group){
-  const u = growthUnit(ch, group);
-  return (u.key==='atkPct' || u.key==='matkPct')
-    ? [u.key, 'bossDmg', 'dmg']
-    // critDmg は手袋のレジェンダリーにだけ出る。無い部位では何も起きない。
-    : [u.key, 'allStatPct', 'critDmg'];
-}
+/* 以前はここで「狙う系統」を決め打ちして目標を絞っていたが、
+   部位ごとに最強の行が違う（手袋のクリダメ、防御率無視など）ので、決め打ちは必ず漏れる。
+   漏れると「一番伸びる組み合わせ」の天井と目標の天井が食い違う。今は絞らず、
+   3つの表すべてが同じ候補から作られるようにしてある。 */
 function bestCombos(ch, group, tier, lv, cube, isAdd, topN, keys){
   const ti = TIERS.indexOf(tier);
   const ent = t=>{
@@ -2268,7 +2263,7 @@ function growthLadder(ch, group, lv, cube, isAdd, from, cur, rungs){
   const all = new Map();
   for(let i=Math.max(1,TIER4.indexOf(from)); i<TIER4.length; i++){
     const t = TIER4[i];
-    bestCombos(ch, group, t, lv, cube, isAdd, 9999, aimKeys(ch, group)).forEach(r=>{
+    bestCombos(ch, group, t, lv, cube, isAdd, 9999).forEach(r=>{
       const k = Math.round(r.v*100)/100;
       if(k <= cur + 0.01) return;                    // 今より下は目標にならない
       if(!all.has(k)) all.set(k, {v:r.v, parts:r.parts.join(' ＋ '), tier:t});
@@ -2315,7 +2310,7 @@ function growthPanel(sl, it, isAdd){
      手袋のクリティカルダメージのように<b>別系統の強い行が丸ごと抜け落ちる</b>。
      どんな中身かは、狙う系統の組み合わせで一番近いものを添えて示す。 */
   const CB = {};
-  TIER4.forEach(t=>{ if(D[t]) CB[t] = bestCombos(ch, group, t, it.lv, cube, isAdd, 9999, aimKeys(ch, group)); });
+  TIER4.forEach(t=>{ if(D[t]) CB[t] = bestCombos(ch, group, t, it.lv, cube, isAdd, 9999); });
   const nearCombo = (t, x)=>{
     let b = null, bd = Infinity;
     (CB[t]||[]).forEach(r=>{ const d = Math.abs(r.v-x); if(d < bd){ bd = d; b = r; } });
@@ -2377,7 +2372,7 @@ function growthPanel(sl, it, isAdd){
   ladder.forEach(L=>{
     const X = L.v;
     if(X <= cur + 1e-9) return;                       // 今より下は出さない
-    let best = null; const cells = [];
+    let best = null, any = null; const cells = [];
     heads.forEach(t=>{
       let add = 0, ok = true;
       for(let i=ti+1; i<=TIER4.indexOf(t); i++){
@@ -2386,17 +2381,26 @@ function growthPanel(sl, it, isAdd){
       const d = D[t], p = d ? tailP(d, X) : 0;
       const c = (ok && p>0) ? add + C0/p : Infinity;
       cells.push([c, t]);
+      if(isFinite(c) && (!any || c < any[0])) any = [c, t];
       if(c < LIMIT && (!best || c < best[0])) best = [c, t];
     });
-    if(!best) return;                                 // どのルートも現実的でない行は出さない
-    if(prev && prev !== best[1]) advice.push(p2(X)+'（'+esc(L.parts)+'）から'+tierPill(best[1]));
-    prev = best[1];
+    const pick = best || any;
+    if(!pick) return;                                 // どのルートも計算できない行だけ落とす
+    if(best){
+      if(prev && prev !== best[1]) advice.push(p2(X)+'から'+tierPill(best[1]));
+      prev = best[1];
+    }
     const pureUnit = L.parts.indexOf(UN.label)===0 && !/クリダメ|ボス|ダメ\d|無視/.test(L.parts);
-    t4 += '<tr><td>'+esc(L.parts)+'<s>'+p2(X)
+    // 行は「ここまで伸ばす」という到達ラインなので数値を主役にする。
+    // 組み合わせはその値になる例であって、その形ぴったりを狙う話ではない。
+    t4 += '<tr'+(best?'':' style="opacity:.55"')+'><td>'+p2(X)+' まで'
+        + '<s>≒ '+esc(L.parts)
         + (pureUnit ? '　'+UN.label+Math.round(X/unit)+'%相当' : '')+'</s></td>'
-      + cells.map(([c,t])=>'<td class="num'+(best[1]===t?' gain':'')+'">'
-          + (c < LIMIT ? mel(c) : '<span style="color:var(--faint)">—</span>')+'</td>').join('')
-      + '<td class="num">'+tierPill(best[1])+'</td></tr>';
+      + cells.map(([c,t])=>'<td class="num'+(pick[1]===t?' gain':'')+'">'
+          + (c < LIMIT ? mel(c)
+             : (isFinite(c) ? '<span style="color:var(--faint)">1兆超</span>'
+                            : '<span style="color:var(--faint)">—</span>'))+'</td>').join('')
+      + '<td class="num">'+tierPill(pick[1])+'</td></tr>';
   });
 
   // 必要レベルで絞っているので、装備レベルが入っていないと強い行が消える。
@@ -2445,10 +2449,12 @@ function growthPanel(sl, it, isAdd){
         + heads.map(t=>'<th class="num">'+t+(t===grade?'のまま':'へ')+'</th>').join('')
         + '<th class="num">安いのは</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
         + (advice.length ? '<p class="hint"><b style="color:var(--ok)">'+advice.join(' / ')+'</b> を目指したほうが安い。</p>' : '')
-        + '<p class="hint">目標は<b>その等級で実際に出せる3行の組み合わせ</b>。'
-        + 'ボスダメージも含めて、強いものから順に並べている。'
-        + '費用は<b>その目標と同じだけ最終ダメ換算が伸びるまで</b>なので、'
-        + '別の組み合わせで同じ伸びに届いた場合も数えている。'
+        + '<p class="hint">各行は<b>「そこまで伸ばす」という到達ライン</b>で、'
+        + '小さい字の「≒」は<b>ちょうどその値になる組み合わせの例</b>。'
+        + '<b>その形ぴったりを狙う費用ではない</b>。'
+        + '費用は<b>その値以上に届くまで</b>なので、'
+        + 'ボスダメージなど別の組み合わせで届いた場合も数えている（例の形そのものを出す確率はもっとずっと低い）。'
+        + '<b>1兆超</b>の行は現実的ではないが、理論値がどこか分かるように残してある。'
         + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。</p></div>' : '')
     + '</div>';
 }
