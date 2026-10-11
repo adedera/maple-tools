@@ -456,9 +456,11 @@ function defSettings(){
     /* 候補に入れるか。強力・永遠はオークションの在庫次第で毎回取れる手とは限らないので、
        外せるようにしてある。外しても詳細の表には残る（見比べはできる）。 */
     flameUse:{ power:true, eternal:true, black:true, abyss:true },
-    /* キューブも同じ。名匠はユーザー間取引しか入手手段が無く、強力・永遠より流通が少ない。
-       数を揃えられないことのほうが多いので、ここだけ既定で外してある。 */
-    cubeUse:{ suspicious:true, craftsman:true, master:false, neo:true, mega:true, neoadd:true },
+    /* キューブも同じ。職人と名匠はユーザー間取引しか入手手段が無く、
+       強力・永遠の炎より流通が少ない。数を揃えられないことのほうが多いので、
+       この2つだけ既定で外してある。 */
+    cubeUse:{ suspicious:true, craftsman:false, master:false, neo:true, mega:true, neoadd:true },
+    cubeUseV:2,
     /* 転生スコア(韓国で言う「추옵급」)の重み。主ステに換算した合計。
        主ステ×1・攻マ×4・オールステ%×10 は広く共通。ボスダメ・ダメージは資料でブレるので変えられる。
        出典: tools.devcomma.com の追加オプション計算機の既定値と namu.wiki「추가옵션」の記述。 */
@@ -507,6 +509,9 @@ function load(){
   return {v:1, chars:[c], active:c.id, settings:defSettings(), ui:defUi()};
 }
 function migrate(o){
+  /* 既定値を被せる前に、保存されていた版を拾っておく。 */
+  const sv0 = o.settings || {};
+  const hadCubeV = +sv0.cubeUseV || 0;
   o.settings = Object.assign(defSettings(), o.settings||{});
   o.settings.price = Object.assign(defSettings().price, o.settings.price||{});
   o.settings.price.cubeMel = Object.assign(defSettings().price.cubeMel, o.settings.price.cubeMel||{});
@@ -514,6 +519,8 @@ function migrate(o){
   o.settings.flameOwn = Object.assign(defSettings().flameOwn, o.settings.flameOwn||{});
   o.settings.flameUse = Object.assign(defSettings().flameUse, o.settings.flameUse||{});
   o.settings.cubeUse  = Object.assign(defSettings().cubeUse,  o.settings.cubeUse||{});
+  /* cubeUse を足した直後は名匠だけ外していたので、職人も外す。一度だけ。 */
+  if(hadCubeV < 2){ o.settings.cubeUse.craftsman = false; o.settings.cubeUseV = 2; }
   o.settings.sf = Object.assign(defSettings().sf, o.settings.sf||{});
   // 旧形式(r/d/keep で持っていたもの)は作り直す。確率の意味が変わっているので引き継がない。
   if(!Array.isArray(o.settings.rows) || o.settings.rows.length!==30 || o.settings.rows[0].suc===undefined)
@@ -3050,7 +3057,7 @@ function renderSetPrice(){
    +'<p class="hint">メル建てのキューブはオークションの相場で動くので、ここは直接書き換える。'
    +'「40m」「1.2G」「40000000」のどれでも入る。空にすると初期値に戻る。<br>'
    +'<b>「使う」を外すと「次の一手」の候補から消える</b>。'
-   +'<b>名匠のキューブは既定で外してある</b> — ユーザー間取引でしか手に入らず、'
+   +'<b>職人・名匠のキューブは既定で外してある</b> — ユーザー間取引でしか手に入らず、'
    +'強力・永遠の炎より流通が少なくて数を揃えられないため。'
    +'外しても装備を開いたときの表には残るので、見比べはできる。</p></details></div>'
    +'<div class="sect"><h4>転生の炎</h4>'
