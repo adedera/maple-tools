@@ -34,6 +34,8 @@ img{max-width:100%}
   --accent:#ffb020; --accent-ink:#241802;
   --ok:#b8d46a; --warn:#ff9a4d; --bad:#ff6b5a;
   --pot:#e0a3ff; --add:#ff9ec4; --fl:#6fd3d0;
+  /* 等級の色はゲーム内に合わせる。OCRの等級判定で使っている実測値と同じ。 */
+  --t-ra:#99ccff; --t-ep:#bb77ff; --t-un:#ffcc00; --t-le:#ccff00;
   --sans:'Noto Sans JP',"Segoe UI","Yu Gothic UI",Meiryo,system-ui,sans-serif;
   --mono:'JetBrains Mono','Noto Sans JP',ui-monospace,SFMono-Regular,monospace;
 }
@@ -46,6 +48,7 @@ img{max-width:100%}
   --accent:#a76a00; --accent-ink:#fffdf8;
   --ok:#4d7a18; --warn:#9a5100; --bad:#b4342a;
   --pot:#7b3fbf; --add:#b03a6e; --fl:#15726f;
+  --t-ra:#2f6ea8; --t-ep:#7b3fbf; --t-un:#9a6a00; --t-le:#5e7a0c;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -167,6 +170,10 @@ tr.detail > td{background:var(--sunken);padding:2px 10px 16px!important}
   display:flex;align-items:center;gap:8px}
 .dcard h5 .sp{margin-left:auto;font-family:var(--mono);color:var(--dim);font-weight:500}
 .dsec{border-top:1px solid var(--line2);margin-top:11px;padding-top:10px}
+.dcard.growth{grid-column:1/-1}
+.tp{font-size:10px;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap}
+table.gp td s{text-decoration:none;display:block;font-size:9.5px;color:var(--faint);font-weight:400}
+table.gp tr.here td{background:rgba(255,176,32,.07)}
 .line{display:grid;grid-template-columns:minmax(0,1fr) 88px 28px;gap:6px;margin-bottom:5px;align-items:center}
 .line .x{background:none;border:1px solid var(--line);border-radius:5px;color:var(--faint);
   cursor:pointer;padding:3px 0;font-size:12px}
@@ -442,7 +449,9 @@ function defSettings(){
     // メル建てのキューブはオークションの相場で動くので、値段は設定で持つ(初期値は目安)。
     price:{ ptRate:800000, use11:true, cubeFee:0,
             cubeMel:{ suspicious:5000, craftsman:5000000, master:40000000 },
-            flameMel:{ power:300000, eternal:2400000 } },
+            flameMel:{ power:300000, eternal:2400000 },
+            /* 等級上昇の書。相場で動くので空のまま（入れると育成計画の費用に効く）。 */
+            scroll:{ epi:0, uni30:0, uni60:0, uni80:0, uni100:0, legend:0 } },
     flameOwn:{ power:0, eternal:0, black:0, abyss:0 },
     /* 候補に入れるか。強力・永遠はオークションの在庫次第で毎回取れる手とは限らないので、
        外せるようにしてある。外しても詳細の表には残る（見比べはできる）。 */
@@ -2072,6 +2081,180 @@ function openItem(slotKey){
 }
 
 /* ============================================================
+   育成計画 — 等級を上げるかどうかの判断
+
+   等級が低いところから育てる場合、「この等級のまま厳選する」か
+   「上の等級に上げてから厳選する」かで、かかるメルが桁で変わる。
+   目標ごとにその2つを比べて、どこが乗り換えどころかを出す。
+
+   目標の刻みは、その部位で実際に出る主ステ%の行の値から作る。
+   帽子なら エピック6% / ユニーク9% / レジェンダリー12% なので、
+   6+6+6=18、9+9+6=24 のように、出る目のある組み合わせだけを並べる。
+
+   韓国公式の昇級確率を使う。**韓国にある等級上昇保証（連続失敗で確定昇級）は
+   日本に無い**ので入れない。
+   書は失敗しても書が消えるだけで潜在は変わらないので、必要枚数は 1/確率。
+   ============================================================ */
+const TIERC = {'レア':'var(--t-ra)','エピック':'var(--t-ep)','ユニーク':'var(--t-un)','レジェンダリー':'var(--t-le)'};
+const TIERB = {'レア':'rgba(153,204,255,.15)','エピック':'rgba(187,119,255,.16)',
+               'ユニーク':'rgba(255,204,0,.14)','レジェンダリー':'rgba(204,255,0,.13)'};
+const TIER4 = ['レア','エピック','ユニーク','レジェンダリー'];
+function tierPill(t){
+  return '<span class="tp" style="background:'+(TIERB[t]||'var(--sunken)')+';color:'+(TIERC[t]||'var(--dim)')+'">'+t+'</span>';
+}
+/* 書。エピ書とレジェ書は100%だけ、ユニ書は取引品に30/60/80%がある。 */
+const SCROLLS = [
+  {k:'epi',    to:'エピック',       n:'エピ書',   p:100},
+  {k:'uni30',  to:'ユニーク',       n:'ユニ書',   p:30},
+  {k:'uni60',  to:'ユニーク',       n:'ユニ書',   p:60},
+  {k:'uni80',  to:'ユニーク',       n:'ユニ書',   p:80},
+  {k:'uni100', to:'ユニーク',       n:'ユニ書',   p:100},
+  {k:'legend', to:'レジェンダリー', n:'レジェ書', p:100}
+];
+function scrollCost(s){ const v = +((S.settings.price.scroll||{})[s.k]); return v>0 ? v*100/s.p : 0; }
+
+/* その部位・等級で主ステ%の行が何%か。無ければ0。 */
+function mainPctLine(ch, group, tier, lv){
+  const rows = ((POT_DATA.slots[group]||{})[tier]) || [];
+  const key = (ch.main||'STR')+'Pct';
+  let best = 0;
+  rows.forEach(r=>{ if(!r.s || r.s[0]!==key) return;
+    if(r.lv && lv < r.lv) return;
+    if(r.s[1] > best) best = r.s[1]; });
+  return best;
+}
+/* 目標の刻み。1行目はその等級が確定、2・3行目は同じ等級かひとつ下。
+   出る目のある合計だけを、組み合わせ付きで並べる。 */
+function growthLadder(ch, group, lv, from){
+  const out = new Map();
+  for(let i=Math.max(1,TIER4.indexOf(from)); i<TIER4.length; i++){
+    const t = TIER4[i], v = mainPctLine(ch, group, t, lv);
+    if(!v) continue;
+    const w = i>0 ? mainPctLine(ch, group, TIER4[i-1], lv) : 0;
+    const side = [0, w, v].filter((x,j,a)=> x>0 || j===0).filter((x,j,a)=>a.indexOf(x)===j);
+    side.forEach(a=> side.forEach(b=>{
+      if(b > a) return;                       // 同じ組み合わせを2度数えない
+      const sum = v + a + b;
+      const parts = [v, a, b].filter(x=>x>0).sort((x,y)=>y-x).join('+');
+      if(!out.has(sum)) out.set(sum, {sum, parts, tier:t});
+    }));
+  }
+  return [...out.values()].sort((a,b)=>a.sum-b.sum);
+}
+
+function growthPanel(sl, it, isAdd){
+  const ch = C();
+  const group = isAdd ? ADD_GROUP[sl.k] : POT_GROUP[sl.k];
+  const grade = isAdd ? it.addGrade : it.potGrade;
+  if(!group || !it.canPot || TIER4.indexOf(grade) < 0) return '';
+  const cube = CUBES.find(c=> c.k === (isAdd ? 'neoadd' : 'mega'));
+  if(!cube) return '';
+  const C0 = cubeCost(cube), U = (POT_DATA.cubes[cube.d]||{}).up || {};
+  const unit = ch.conv.mainStatPct || 0;
+  if(!(unit>0) || !(C0>0)) return '';
+  const cur = sumLines(isAdd ? it.add : it.pot, ch.conv);
+  const ti = Math.max(1, TIER4.indexOf(grade));
+
+  const D = {};
+  TIER4.forEach(t=>{ const d = potDist(ch, group, t, it.lv, cube, isAdd); if(d) D[t] = d; });
+  if(!Object.keys(D).length) return '';
+
+  const qAt = (d,q)=>{ const xs=[...d.entries()].sort((a,b)=>b[0]-a[0]); let a=0;
+    for(const e of xs){ a+=e[1]; if(a>=q) return e[0]; } return 0; };
+  const tailP = (d,x)=>{ let s=0; d.forEach((p,v)=>{ if(v>=x-1e-9) s+=p; }); return s; };
+  const st = v => '主'+Math.round(v/unit)+'%<s>'+p2(v)+'</s>';
+
+  /* ① 等級ごとの着地点 */
+  let t1 = '';
+  TIER4.forEach(t=>{ const d=D[t]; if(!d) return;
+    let mx=0; d.forEach((p,v)=>{ if(v>mx) mx=v; });
+    t1 += '<tr'+(t===grade?' class="here"':'')+'><td>'+tierPill(t)
+      + (t===grade ? ' <span class="sub" style="display:inline">← 今ここ</span>' : '') + '</td>'
+      + '<td class="num">'+st(qAt(d,0.2))+'</td><td class="num">'+st(qAt(d,0.05))+'</td>'
+      + '<td class="num">'+st(qAt(d,0.01))+'</td><td class="num">'+st(mx)+'</td></tr>'; });
+
+  /* ② 昇級にかかるもの（キューブ／書） */
+  let t2 = '', t3 = '', upc = {};
+  for(let i=ti; i<TIER4.length-0 && i<4; i++){
+    const to = TIER4[i+1]; if(!to) break;
+    const p = (U[to]||0)/100; if(!(p>0)) continue;
+    const byCube = C0/p;
+    upc[to] = {cube:byCube, best:byCube, how:'キューブ'};
+    t2 += '<tr><td>'+tierPill(TIER4[i])+' → '+tierPill(to)+'</td>'
+        + '<td class="num">'+(p*100).toFixed(4)+'%</td><td class="num">'+cnt(1/p).replace('個','回')+'</td>'
+        + '<td class="num">'+medTries(p)+'回</td><td class="num">'+mel(byCube)+'</td></tr>';
+  }
+  if(!isAdd){
+    SCROLLS.forEach(s=>{
+      const u = upc[s.to]; if(!u) return;
+      const be = u.cube*s.p/100, mine = scrollCost(s);
+      if(mine>0 && mine < u.best){ u.best = mine; u.how = s.n+(s.p<100?' '+s.p+'%':''); }
+      t3 += '<tr><td>'+s.n+'<span class="sub">'+(s.p===100?'確定':'取引品')+'</span></td>'
+          + '<td class="num">'+s.p+'%</td><td class="num">'+(100/s.p).toFixed(1)+'枚</td>'
+          + '<td class="num gain">'+mel(be)+'</td>'
+          + '<td class="num">'+(mine>0 ? (mel(mine)+'<span class="sub">'+(mine<u.cube?'書が安い':'キューブが安い')+'</span>') : '—')+'</td></tr>';
+    });
+  }
+
+  /* ③ どこまで狙うなら、どの等級か */
+  const heads = TIER4.slice(ti);
+  const ladder = growthLadder(ch, group, it.lv, grade);
+  let t4 = '', advice = [], prev = null;
+  ladder.forEach(L=>{
+    const X = L.sum*unit;
+    if(X <= cur + 1e-9) return;                       // 今より下は出さない
+    let best = null; const cells = [];
+    heads.forEach(t=>{
+      let add = 0, ok = true;
+      for(let i=ti+1; i<=TIER4.indexOf(t); i++){
+        const u = upc[TIER4[i]]; if(!u){ ok=false; break; } add += u.best;
+      }
+      const d = D[t], p = d ? tailP(d, X) : 0;
+      const c = (ok && p>0) ? add + C0/p : Infinity;
+      cells.push([c, t]);
+      if(isFinite(c) && (!best || c < best[0])) best = [c, t];
+    });
+    if(!best) return;
+    if(prev && prev !== best[1]) advice.push('主'+L.sum+'% から'+tierPill(best[1]));
+    prev = best[1];
+    t4 += '<tr><td>主'+L.sum+'%<s>'+L.parts+'　'+p2(X)+'</s></td>'
+      + cells.map(([c,t])=>'<td class="num'+(best[1]===t?' gain':'')+'">'
+          + (isFinite(c) ? mel(c) : '<span style="color:var(--faint)">—</span>')+'</td>').join('')
+      + '<td class="num">'+tierPill(best[1])+'</td></tr>';
+  });
+
+  return '<div class="dcard growth"><h5>育成計画（'+(isAdd?'アディ潜在':'上潜在')+'）'
+    + '<span class="sp">'+esc(cube.n)+' '+mel(C0)+'/個</span></h5>'
+    + '<div class="dsec" style="border-top:0;margin-top:0;padding-top:0">'
+    + '<p class="cap">等級ごとに、どのへんに着地するか</p>'
+    + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th>'
+    + '<th class="num">よくある着地<span class="sub" style="font-weight:400">上位20%</span></th>'
+    + '<th class="num">上位5%</th><th class="num">上位1%</th><th class="num">その等級の最高</th>'
+    + '</tr></thead><tbody>'+t1+'</tbody></table></div></div>'
+    + (t2 ? '<div class="dsec"><p class="cap">キューブで昇級を狙う場合</p>'
+        + '<div class="scrollx"><table class="mini gp"><thead><tr><th>昇級</th><th class="num">1回の確率</th>'
+        + '<th class="num">平均</th><th class="num">中央</th><th class="num">平均の費用</th></tr></thead>'
+        + '<tbody>'+t2+'</tbody></table></div>'
+        + '<p class="hint">確率は<b>韓国公式</b>より。'
+        + '<b style="color:var(--warn)">韓国にある等級上昇保証（10/42/107回で確定昇級）は日本に無い</b>ので入れていない。</p></div>' : '')
+    + (t3 ? '<div class="dsec"><p class="cap">書を使う場合 ─ いくらまでなら得か</p>'
+        + '<div class="scrollx"><table class="mini gp"><thead><tr><th>書</th><th class="num">上昇確率</th>'
+        + '<th class="num">平均で要る数</th><th class="num">これ以下なら書が安い</th>'
+        + '<th class="num">入れた相場で1回ぶん</th></tr></thead><tbody>'+t3+'</tbody></table></div>'
+        + '<p class="hint">「これ以下なら書が安い」＝ キューブで昇級を狙う費用 × 書の上昇確率。'
+        + 'これより安く買えるなら書のほうが得。相場は左の「値段と確率」に入れると下の表にも効く。'
+        + '<br>書は<b>失敗しても書が消えるだけで潜在は変わらない</b>ので、平均で要る数は 1÷確率。</p></div>' : '')
+    + (t4 ? '<div class="dsec"><p class="cap">どこまで狙うなら、どの等級を目指すか</p>'
+        + '<div class="scrollx"><table class="mini gp"><thead><tr><th>目標</th>'
+        + heads.map(t=>'<th class="num">'+t+(t===grade?'のまま':'へ')+'</th>').join('')
+        + '<th class="num">安いのは</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
+        + (advice.length ? '<p class="hint"><b style="color:var(--ok)">'+advice.join(' / ')+'</b> を目指したほうが安い。</p>' : '')
+        + '<p class="hint">目標は、その部位で実際に出る主ステ%の行の組み合わせ。'
+        + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。</p></div>' : '')
+    + '</div>';
+}
+
+/* ============================================================
    開いた行の中身（左=編集、右=強化の見込み）
    ============================================================ */
 function rowDetail(sl, it, cands){
@@ -2186,7 +2369,9 @@ function rowDetail(sl, it, cands){
       }).join('')
     + '</div></div>';
 
-  return '<div class="dbox">'+L+R+'</div>';
+  let GP = '';
+  try{ GP = growthPanel(sl, it, false) + growthPanel(sl, it, true); }catch(e){ GP = ''; }
+  return '<div class="dbox">'+L+R+GP+'</div>';
 }
 
 /* 純粋攻撃力の検算。段階ごとの攻撃力を並べて、今の転生の値がどれに当たるか出す。
@@ -2681,6 +2866,17 @@ function renderSetPrice(){
    +'<b>「使う」を外すと「次の一手」の候補から消える</b>。'
    +'強力・永遠はオークションの在庫次第で、毎回取れる手とは限らないので。'
    +'外しても装備を開いたときの表には残るので、見比べはできる。</p></div>'
+   +'<div class="sect"><h4>等級上昇の書</h4>'
+   +'<div class="scrollx"><table class="mini"><thead><tr><th>書</th><th class="num">上昇確率</th>'
+   +'<th class="num">1枚のメル</th></tr></thead><tbody>'
+   + SCROLLS.map(f=>'<tr><td>'+esc(f.n)+'<span class="sub">'+(f.p===100?'確定':'取引品')+'</span></td>'
+      + '<td class="num">'+f.p+'%</td>'
+      + '<td class="num"><input type="text" data-scr="'+f.k+'" value="'
+      + mel(+((S.settings.price.scroll||{})[f.k])||0)+'" style="width:100px"></td></tr>').join('')
+   +'</tbody></table></div>'
+   +'<p class="hint">入れると、装備を開いたときの<b>育成計画</b>で「キューブで昇級」と見比べて安いほうを使う。'
+   +'空のままでも「いくらまでなら書が得か」は出る。<b>書は失敗しても潜在は変わらない</b>ので、'
+   +'平均で要る枚数は 1÷確率。</p></div>'
    +'<div class="sect"><h4>スターフォース</h4>'
    +'<div class="grid2">'
    +'<label class="chk" style="grid-column:1/-1"><input type="checkbox" data-sf="protect"'+(sf.protect?' checked':'')+'>破壊防止を使う（★15〜17のみ・素の費用の2倍を上乗せ）</label>'
@@ -2706,6 +2902,8 @@ function renderSetPrice(){
     p.flameMel[i.dataset.flmel] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-flown]').forEach(i=> i.onchange = ()=>{
     S.settings.flameOwn[i.dataset.flown] = Math.max(0, +i.value||0); save(); redrawKeep(); });
+  $('box-price').querySelectorAll('[data-scr]').forEach(i=> i.onchange = ()=>{
+    S.settings.price.scroll[i.dataset.scr] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-fluse]').forEach(i=> i.onchange = ()=>{
     S.settings.flameUse[i.dataset.fluse] = i.checked; save(); renderSetPrice(); redrawKeep(); });
   $('use11').onchange = ()=>{ p.use11 = $('use11').checked; save(); redrawKeep(); };
