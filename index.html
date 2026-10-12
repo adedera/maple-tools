@@ -1813,6 +1813,20 @@ const RING_ZONE = [
   ['メルセデス',46.79,38.91],['隠月',41.34,37.16],['ララ',36.76,31.87],['ルミナス',41.56,37.14],
   ['レン',43.35,39.33],['ワイルドハンター',43.92,34.98]
 ];
+/* 職業の日本名 → 韓国名（meaegi.com の職業ページのパス）。名前の対応は kms-research スキルの対照表、
+   パスは meaegi.com/classes-and-jobs の一覧のリンクより（2026-10-13）。 */
+const JOB_KR = {
+  'アーク':'아크','アークメイジ(雷・氷)':'아크메이지(썬,콜)','アークメイジ(火・毒)':'아크메이지(불,독)','アデル':'아델',
+  'アラン':'아란','イリウム':'일리움','ウィンドシューター':'윈드브레이커','エヴァン':'에반','エンジェリックバスター':'엔젤릭버스터',
+  'カーリー':'칼리','カイザー':'카이저','カイン':'카인','カデナ':'카데나','キネシス':'키네시스','キャノンシューター':'캐논마스터',
+  'キャプテン':'캡틴','クロスボウマスター':'신궁','虎影':'호영','シャドー':'섀도어','ストライカー':'스트라이커','ゼノン':'제논',
+  'ゼロ':'제로','ソウルマスター':'소울마스터','ダークナイト':'다크나이트','デーモンアヴェンジャー':'데몬어벤져',
+  'デーモンスレイヤー':'데몬슬레이어','デュアルブレイド':'듀얼블레이더','ナイトウォーカー':'나이트워커','ナイトロード':'나이트로드',
+  'バイパー':'바이퍼','パスファインダー':'패스파인더','バトルメイジ':'배틀메이지','パラディン':'팔라딘','ヒーロー':'히어로',
+  'ビショップ':'비숍','ファントム':'팬텀','ブラスター':'블래스터','フレイムウィザード':'플레임위자드','ボウマスター':'보우마스터',
+  'ミハエル':'미하일','メカニック':'메카닉','メルセデス':'메르세데스','隠月':'은월','ララ':'라라','ルミナス':'루미너스',
+  'レン':'렌','ワイルドハンター':'와일드헌터'
+};
 const RING_TYPES = [['restraint','リストレイントリング'],['continuous','コンティニュアスリング']];
 function ringStonePrice(r){
   const v = ((S.settings.price||{}).ring||{})[r.stone];
@@ -2667,6 +2681,7 @@ function growthPanel(sl, it, isAdd){
     + '<span class="sp">'+esc(cubes.map(c=>cubeShort(c)+' '+mel(cubeCost(c))).join(' / '))+'</span></h5>'
     + '<div class="dsec" style="border-top:0;margin-top:0;padding-top:0">'
     + lvWarn
+    + (sl.k==='hat' ? ctNote() : '')
     + (t4 ? '<p class="cap">どこまで狙うなら、どの等級を目指すか</p>'+recLine : '')
     + '<p class="cap">等級ごとに、どのへんに着地するか</p>'
     + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th>'
@@ -2728,6 +2743,19 @@ document.addEventListener('click', ev=>{
   const t = document.querySelector('.dcard.growth[data-gp="'+b.dataset.gojump+'"]');
   if(t) t.scrollIntoView({block:'start'});
 });
+/* 帽子の「スキルクールタイム -◯秒」は換算しない。数字を出さない代わりに、そのことを帽子の潜在の表示に必ず添える。
+   参考リンクは meaegi.com の職業分析（戦闘力帯ごと・秒数ごとの採用率）。職業を選んでいればその職業のページへ。 */
+function ctNote(){
+  const job = C().ringJob, kr = job && JOB_KR[job];
+  const url = 'https://meaegi.com/classes-and-jobs' + (kr ? '/'+encodeURIComponent(kr) : '');
+  return '<p class="hint" style="border-left:3px solid var(--warn);padding-left:8px">'
+    + '<b>スキルクールタイム減少は換算に入れていない。</b>'
+    + '効き方が職業・スキル構成・今のCT-秒数で大きく違い、根拠にできる数字が無いため。'
+    + 'ここの伸びと順位は<b>主ステ・攻撃力などの換算だけ</b>で、CT減少を使う職業では「主ステ%×3」より上になることがある。'
+    + '<br>参考: <a href="'+url+'" target="_blank" rel="noopener">メアギの職業分析'+(kr?'（'+esc(job)+'）':'')+'</a>'
+    + (kr ? '' : '（設定の「キャラと換算」で職業を選ぶと、その職業のページへ飛ぶ）')
+    + ' に、韓国で戦闘力帯ごとに何秒の帽子を使っているかの割合がある。<b>採用率であって、火力の上昇率ではない</b>。</p>';
+}
 function recExamples(b){
   try{
     if(b.kind!=='pot' || !b.cube || !b.an || b.planIdx!=null) return '';
@@ -2781,6 +2809,7 @@ function recCard(cands){
         : '<div><span class="n">'+mel(b.cost)+'</span><span class="u">かかるメル</span></div>'
           + '<div><span class="n eff">'+p2(b.eff)+'</span><span class="u">1Gあたり</span></div>')
     + '</div><p class="rd">'+esc(b.detail||'')+'</p>';
+  if(b.kind==='pot' && b.slot && b.slot.k==='hat') h += ctNote();
   h += recExamples(b);
   const seen = {}; seen[kindOf(b)] = 1;
   const alt = [];
@@ -3151,6 +3180,7 @@ function potTable(ch, slotKey, it){
   rows.sort((x,y)=> (cubeOn(y.c)-cubeOn(x.c)) || (y.eff-x.eff));
   const cur = sumLines(it.pot, ch.conv);
   return '<div class="dsec"><p class="cap">潜在 — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
+    + (slotKey==='hat' ? ctNote() : '')
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
     + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
@@ -3205,6 +3235,7 @@ function addTable(ch, slotKey, it){
   rows.sort((x,y)=> (cubeOn(y.c)-cubeOn(x.c)) || (y.eff-x.eff));
   const cur = sumLines(it.add, ch.conv);
   return '<div class="dsec"><p class="cap">アディ — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
+    + (slotKey==='hat' ? ctNote() : '')
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
     + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
@@ -3407,7 +3438,12 @@ function renderSetConv(){
    +'<div class="grid2" id="convlist"></div>'
    +'<button class="btn" id="btn-convreset" style="margin-top:8px">初期値に戻す</button></details></div>';
   $('jobst').innerHTML =
-    '<label class="f"><span>主ステータス</span><select data-job="main">'
+    '<label class="f" style="grid-column:1/-1"><span>職業</span><select data-job="ringJob">'
+    + '<option value="">— 選ばない —</option>'
+    + RING_ZONE.map(r=>'<option value="'+esc(r[0])+'"'+(ch.ringJob===r[0]?' selected':'')+'>'+esc(r[0])+'</option>').join('')
+    + '</select><span class="sub" style="display:block">リング研磨の職業と共通。帽子の潜在の注意書きから、同じ職業の韓国での採用率のページへ飛ぶのに使う。'
+    + '日本のみの職業は選べない。主ステ・サブステは自動では変わらないので、下で選ぶ。</span></label>'
+   +'<label class="f"><span>主ステータス</span><select data-job="main">'
     + STATKIND.map(s=>'<option'+(ch.main===s?' selected':'')+'>'+s+'</option>').join('')+'</select></label>'
    +'<label class="f"><span>サブステータス</span><select data-job="sub">'
     + STATKIND.concat(['なし']).map(s=>'<option'+(ch.sub===s?' selected':'')+'>'+s+'</option>').join('')+'</select></label>'
@@ -3509,7 +3545,7 @@ function renderSetPrice(){
       + '<td class="num"><input type="text" data-ringstone="'+r.stone+'" value="'+mel(ringStonePrice(r))+'" style="width:92px"></td>'
       + '<td class="num">石1個ごとに '+mel(r.meso)+'</td></tr>').join('')
    +'</tbody></table></div>'
-   +'<div class="grid2" style="margin-top:8px"><label class="f"><span>このキャラの職業（リストレイントの計算用）</span>'
+   +'<div class="grid2" style="margin-top:8px"><label class="f"><span>このキャラの職業（「キャラと換算」の職業と共通。リストレイントの計算用）</span>'
    +'<select data-ringjob="1"><option value="">— 選ばない（下の割合を使う）—</option>'
    + RING_ZONE.map(r=>'<option value="'+esc(r[0])+'"'+(C().ringJob===r[0]?' selected':'')+'>'+esc(r[0])+'</option>').join('')
    +'</select></label>'
