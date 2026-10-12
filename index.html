@@ -170,6 +170,21 @@ tr.detail > td{background:var(--sunken);padding:2px 10px 16px!important}
   display:flex;align-items:center;gap:8px}
 .dcard h5 .sp{margin-left:auto;font-family:var(--mono);color:var(--dim);font-weight:500}
 .dsec{border-top:1px solid var(--line2);margin-top:11px;padding-top:10px}
+.rec{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;background:var(--sunken);
+  padding:10px 12px;margin-bottom:12px}
+.rec.none{border-left-color:var(--line);color:var(--faint);font-size:11.5px}
+.rec .rh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rec .k{font-size:10px;color:var(--faint);font-weight:700;letter-spacing:.05em}
+.rec .lb{font-size:15px}
+.rec .rg{display:flex;gap:26px;flex-wrap:wrap;margin:8px 0 4px;align-items:flex-end}
+.rec .rg > div{display:grid;gap:1px}
+.rec .rg .n{font-family:var(--mono);font-size:15px;font-weight:700}
+.rec .rg .n.gain{font-size:26px;line-height:1.1}
+.rec .rg .u{font-size:10px;color:var(--faint)}
+.rec .rd{margin:2px 0 0;font-size:10.5px;color:var(--faint);line-height:1.5}
+.rec .alts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:9px;padding-top:8px;border-top:1px solid var(--line2)}
+.rec .alt{font-size:11px;color:var(--dim)}
+.rec .alt .tag{margin-right:4px}
 .dcard.growth{grid-column:1/-1}
 .tp{font-size:10px;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap}
 table.gp td s{text-decoration:none;display:block;font-size:9.5px;color:var(--faint);font-weight:400}
@@ -2459,6 +2474,34 @@ function growthPanel(sl, it, isAdd){
     + '</div>';
 }
 
+/* 開いた装備の「この装備のおすすめ」。候補は eff 降順(手持ちモードは perGain 降順)に並んでいる。 */
+function recCard(cands){
+  const own = ownMode();
+  const ok = (cands||[]).filter(c=> own ? c.free : (!c.free && c.cost>0));
+  if(!ok.length)
+    return '<div class="rec none">今できる強化の候補は無い（潜在なし・★上限・キューブ/炎を全部外している、など）。</div>';
+  const kindOf = c => c.kind==='pot' && /^アディ/.test(c.detail||'') ? 'add' : c.kind;
+  const tag = c => kindOf(c)==='add' ? '<span class="tag pot" style="color:var(--add)">アディ</span>' : tagOf(c.kind);
+  const b = ok[0];
+  let h = '<div class="rec"><div class="rh"><span class="k">この装備のおすすめ</span>'+tag(b)
+    + '<b class="lb">'+esc(b.label)+'</b></div>'
+    + '<div class="rg"><div><span class="n gain">'+p2(b.gain)+'</span><span class="u">伸び</span></div>'
+    + (own
+        ? '<div><span class="n">'+cnt(b.units)+'</span><span class="u">平均個数</span></div>'
+          + '<div><span class="n">'+p4(b.perGain)+'</span><span class="u">1個あたり</span></div>'
+        : '<div><span class="n">'+mel(b.cost)+'</span><span class="u">かかるメル</span></div>'
+          + '<div><span class="n eff">'+p2(b.eff)+'</span><span class="u">1Gあたり</span></div>')
+    + '</div><p class="rd">'+esc(b.detail||'')+'</p>';
+  const seen = {}; seen[kindOf(b)] = 1;
+  const alt = [];
+  ok.slice(1).forEach(c=>{ const k = kindOf(c); if(seen[k]) return; seen[k]=1; alt.push(c); });
+  if(alt.length)
+    h += '<div class="alts"><span class="k">ほかの候補</span>'
+      + alt.slice(0,3).map(c=>'<span class="alt">'+tag(c)+esc(c.label)+' <b class="gain">'+p2(c.gain)+'</b></span>').join('')
+      + '</div>';
+  return h + '</div>';
+}
+
 /* ============================================================
    開いた行の中身（左=編集、右=強化の見込み）
    ============================================================ */
@@ -2531,6 +2574,7 @@ function rowDetail(sl, it, cands){
 
   /* ---- 右: 強化の見込み ---- */
   let R = '<div class="dcard"><h5>強化の見込み</h5>';
+  R += recCard(cands);
   const sfc = cands.filter(c=>c.kind==='sf');
   if(sfc.length){
     const c = sfc[0];
