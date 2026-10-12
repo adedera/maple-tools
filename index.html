@@ -322,13 +322,15 @@ const STATS = [
 ];
 const SMAP = {}; STATS.forEach(s=>SMAP[s.k]=s);
 
-/* 25スロット。sf/pot/fl は初期の可否(装備ごとに上書きできる)。
+/* 26スロット。sf/pot/fl は初期の可否(装備ごとに上書きできる)。
    可否はスクショの表示(スタフォなし・対象外・転生欄なし)に合わせた。 */
 const SLOTS = [
   {k:'ring1',   n:'指輪',      c:'装飾品', sf:1,pot:1,fl:0, lv:200},
   {k:'ring2',   n:'指輪',      c:'装飾品', sf:1,pot:1,fl:0, lv:200},
   {k:'ring3',   n:'指輪',      c:'装飾品', sf:1,pot:1,fl:0, lv:200},
-  {k:'ring4',   n:'指輪',      c:'装飾品', sf:1,pot:1,fl:0, lv:200},
+  /* スキルリング専用の枠。4番目の指輪枠と、4Lv以上のスキルリングで開く追加枠。スタフォ・潜在・転生の炎は付かない。 */
+  {k:'ring4',   n:'スキルリング①', c:'装飾品', sf:0,pot:0,fl:0, lv:110, sk:1},
+  {k:'ring5',   n:'スキルリング②', c:'装飾品', sf:0,pot:0,fl:0, lv:110, sk:1},
   {k:'belt',    n:'ベルト',    c:'装飾品', sf:1,pot:1,fl:1, lv:200},
   {k:'pocket',  n:'ポケット',  c:'装飾品', sf:0,pot:0,fl:1, lv:160},
   {k:'face',    n:'顔飾り',    c:'装飾品', sf:1,pot:1,fl:1, lv:160},
@@ -369,7 +371,7 @@ const POT_GROUP = {
   hat:'hat', top:'top', bottom:'bottom', glove:'glove', shoes:'shoes',
   cape:'cape', belt:'cape', shoulder:'cape',
   face:'acc', eye:'acc', ear:'acc', pend1:'acc', pend2:'acc',
-  ring1:'acc', ring2:'acc', ring3:'acc', ring4:'acc',
+  ring1:'acc', ring2:'acc', ring3:'acc', ring4:'acc', ring5:'acc',
   weapon:'weapon', sub:'sub', emblem:'emblem', heart:'heart'
 };
 /* キューブ。tbl は排出率テーブル(f=無料 / p=課金)。JMS名とスプレッドシート上の名前の対応つき。 */
@@ -393,7 +395,7 @@ const ADD_GROUP = {
   hat:'hat', glove:'glove',
   top:'armor', bottom:'armor', shoes:'armor', cape:'armor', shoulder:'armor',
   face:'acc', eye:'acc', ear:'acc', pend1:'acc', pend2:'acc', belt:'acc',
-  ring1:'acc', ring2:'acc', ring3:'acc', ring4:'acc',
+  ring1:'acc', ring2:'acc', ring3:'acc', ring4:'acc', ring5:'acc',
   weapon:'weapon', sub:'sub', emblem:'emblem', heart:'etc', pocket:'etc'
 };
 const ADD_CUBES = CUBES.filter(c=>c.addOnly);
@@ -480,7 +482,11 @@ function defSettings(){
             cubeMel:{ suspicious:5000, craftsman:5000000, master:40000000, rareadd:160000 },
             flameMel:{ power:300000, eternal:2400000 },
             /* 等級上昇の書。相場で動くので空のまま（入れると育成計画の費用に効く）。 */
-            scroll:{ epi:0, uni30:0, uni60:0, uni80:0, uni100:0, legend:0 } },
+            scroll:{ epi:0, uni30:0, uni60:0, uni80:0, uni100:0, legend:0 },
+            /* リング研磨の石。空なら RING_STEPS の初期値(2026-10-13時点の申告: 生命1.5G・信念6G)。 */
+            ring:{} },
+    /* リストレイントの領域内に収まるダメージの割合(%)。初期値は 20秒÷120秒 の時間割合。 */
+    ringZone:16.7,
     flameOwn:{ power:0, eternal:0, black:0, abyss:0 },
     /* 候補に入れるか。強力・永遠はオークションの在庫次第で毎回取れる手とは限らないので、
        外せるようにしてある。外しても詳細の表には残る（見比べはできる）。 */
@@ -514,8 +520,10 @@ const FLAMEF = [['mainStat','主ステータス'],['subStat','サブステータ
                 ['allStatPct','オールステータス%'],['bossDmg','ボスダメージ%'],['dmg','ダメージ%']];
 function newItem(slotKey, name, lv, cap){
   const sl = SLMAP[slotKey]; lv = lv||sl.lv||200;
+  const sk = !!sl.sk;                    // スキルリング専用の枠
   return { name:name||'', lv:lv, star:0, starMax: cap||starCap(lv), baseAtk:0, sfAs:'', sfAa:'', isBoss:true,
-           sf:!!sl.sf, canPot:!!sl.pot, canFl:!!sl.fl,
+           skill:sk, skLv:0,
+           sf:!sk&&!!sl.sf, canPot:!sk&&!!sl.pot, canFl:!sk&&!!sl.fl,
            potGrade:'レジェンダリー', pot:[], addGrade:'なし', add:[], flame:newFlame(),
            base:0, plans:[] };
 }
@@ -544,6 +552,7 @@ function migrate(o){
   o.settings = Object.assign(defSettings(), o.settings||{});
   o.settings.price = Object.assign(defSettings().price, o.settings.price||{});
   o.settings.price.cubeMel = Object.assign(defSettings().price.cubeMel, o.settings.price.cubeMel||{});
+  o.settings.price.ring = Object.assign({}, o.settings.price.ring||{});
   o.settings.price.flameMel = Object.assign(defSettings().price.flameMel, o.settings.price.flameMel||{});
   o.settings.flameOwn = Object.assign(defSettings().flameOwn, o.settings.flameOwn||{});
   o.settings.flameUse = Object.assign(defSettings().flameUse, o.settings.flameUse||{});
@@ -569,6 +578,9 @@ function migrate(o){
       if(!it.starMax) it.starMax = starCap(it.lv);
       if(it.baseAtk===undefined) it.baseAtk = 0;
       if(it.isBoss===undefined) it.isBoss = true;
+      // スキルリング専用の枠(指輪の4番目と、追加のスキルリング枠)
+      if(SLMAP[k] && SLMAP[k].sk){ it.skill = true; it.sf = false; it.canPot = false; it.canFl = false;
+        if(it.skLv===undefined) it.skLv = 0; }
       (it.plans||[]).forEach(pl=>{ if(pl.type==='flame' && Array.isArray(pl.target)){
         const f = newFlame(); pl.target.forEach(l=>{ if(f[l.t]!==undefined) f[l.t] += (+l.v||0); }); pl.target = f; } });
     }
@@ -1222,6 +1234,44 @@ function potKeyToStat(ch, key){
   if(['allStatPct','bossDmg','dmg','critDmg','critRate','ignoreDef'].indexOf(key)>=0) return key;
   return 'other';
 }
+/* スキルリングのレベルを読む。
+   スキルリングは STR/DEX/INT/LUK/攻撃力/魔力 がすべて「+スキルレベル」で付く(Lv4なら全部+4)。
+   白字の行の頭を項目名として読み、その右の「+◯」を拾って、多数決でレベルにする。
+   LUK の「4」が「3」に化けることがあるので、1行ずつではなく多数決。
+   実物2枚(リストレイントリング/コンティニュアスリング、どちらもLv4)で確認。他のレベルは未確認。 */
+function readSkillRing(R){
+  const X1=Math.floor(R.W*0.6), want={str:1,dex:1,int:1,luk:1,att:1,mat:1};
+  const votes={}; let hit=0, st=-1;
+  for(let y=0;y<=R.H;y++){
+    let n=0; if(y<R.H) for(let x=15;x<X1;x++) if(R.brt(x,y)){ n++; if(n>2) break; }
+    const on=y<R.H && n>2;
+    if(on && st<0){ st=y; continue; }
+    if(on || st<0) continue;
+    const y0=st, y1=y-1; st=-1;
+    if(y1-y0<5) continue;
+    const gs=[]; let a=-1, b=-1;
+    for(let x=15;x<X1;x++){
+      let o=false; for(let yy=y0;yy<=y1;yy++) if(R.brt(x,yy)){ o=true; break; }
+      if(!o) continue;
+      if(a<0){ a=x; b=x; } else if(x-b<=7){ b=x; } else { gs.push([a,b]); a=x; b=x; }
+    }
+    if(a>=0) gs.push([a,b]);
+    if(gs.length!==2) continue;                       // 「項目名」+「+◯」の2塊だけの行
+    let ly0=-1, ly1=-1;
+    for(let yy=y0;yy<=y1;yy++){ let o=false;
+      for(let x=gs[0][0];x<=gs[0][1];x++) if(R.brt(x,yy)){ o=true; break; }
+      if(o){ if(ly0<0) ly0=yy; ly1=yy; } }
+    const m=readLabel(R,gs[0][0],ly0,gs[0][1],ly1);
+    if(!m || !want[m.k]) continue;
+    const g=readGlyphs(R,gs[1][0]-1,gs[1][1]+1,y0,y1,R.brt);
+    const mt=g && g.text.match(/^\+(\d{1,2})$/);
+    if(!mt) continue;
+    hit++; votes[mt[1]]=(votes[mt[1]]||0)+1;
+  }
+  let best=null; Object.keys(votes).forEach(k=>{ if(!best || votes[k]>votes[best]) best=k; });
+  if(hit<4 || !best || votes[best]<3 || +best<1) return null;
+  return {lv:+best, n:votes[best]};
+}
 /* 攻撃力/魔力の行から、括弧内の最初の数字(=純粋攻撃力)を読む */
 function readBaseAtk(R, lines){
   for(const L of lines){
@@ -1274,6 +1324,7 @@ function ocrTooltip(img){
   const b=readBaseAtk(R,lines);
   if(b) out.base=b;
   out.blocks=readPotBlocks(R);
+  if(!out.lines.length && out.stars==null && !out.blocks.length) out.skill=readSkillRing(R);
   // 転生の炎が付かない部位(肩・指輪など)は緑の行が無く、要求レベルの基準が取れない。
   // 潜在の行頭の点を基準にして読み直す。
   if(out.lv==null && out.blocks.length && out.blocks[0].lines.length){
@@ -1692,6 +1743,74 @@ function sfChance(it, from, to, budget, n){
 }
 
 /* ============================================================
+   リング研磨（スキルリングのLv4→5、Lv5→6）
+   出典: namu.wiki「특수 스킬 반지」の「반지 연마」。日本版も同じ設定とのユーザー申告。
+   石1個につき成功10%（生命の研磨石 4→5）/ 5%（信念の研磨石 5→6）、石1個ごとにメルを使う。
+   まとめて使うと確率もメルも石の数に比例するので、平均で要る石の数は同じ。
+   効果は リストレイント 4→5:持続15→20秒、5→6:攻撃力・魔力+17%(領域内)、
+         コンティニュアス 4→5・5→6 どちらも ボスダメ+9% 攻撃力・魔力+2%。
+   ============================================================ */
+const RING_STEPS = [
+  {from:4, to:5, stone:'life',  stoneName:'生命の研磨石', p:0.10, meso:500000000,  full:10, def:1500000000},
+  {from:5, to:6, stone:'faith', stoneName:'信念の研磨石', p:0.05, meso:1000000000, full:20, def:6000000000}
+];
+/* リストレイントの領域内に収まるダメージの割合(%)。[職業, Lv5(持続20秒), Lv4(持続15秒)]
+   出典: fmkorea「전직업 극딜점유율 정리(feat. 5렙 6렙 순서)」2026-03-20 の表「コンティのみで攻撃した場合、リストレ区間のダメージ比率」
+   (https://www.fmkorea.com/9614713510)。計算は環算ジュスタッツ(maplescouter.com)のデータ、
+   投稿者の注記は「無保エム最適化済みの基準で、個人差あり」。ユーザーが画像から書き起こした。 */
+const RING_ZONE = [
+  ['アーク',44.38,38.62],['アークメイジ(雷・氷)',44.13,38.49],['アークメイジ(火・毒)',30.24,22.48],
+  ['アデル',41.66,35.32],['アラン',42.35,38.89],['イリウム',36.83,28.82],['ウィンドシューター',41.74,36.15],
+  ['エヴァン',30.18,26.56],['エンジェリックバスター',41.40,35.39],['カーリー',36.63,30.74],['カイザー',32.16,26.42],
+  ['カイン',40.51,36.51],['カデナ',41.46,34.88],['キネシス',44.11,37.65],['キャノンシューター',37.95,34.34],
+  ['キャプテン',35.43,29.86],['クロスボウマスター',40.45,35.17],['虎影',42.42,35.13],['シャドー',35.80,31.65],
+  ['ストライカー',37.93,32.69],['ゼノン',41.38,35.66],['ゼロ',36.50,29.00],['ソウルマスター',40.97,34.15],
+  ['ダークナイト',31.12,26.82],['デーモンアヴェンジャー',36.72,30.39],['デーモンスレイヤー',41.36,35.36],
+  ['デュアルブレイド',39.68,33.65],['ナイトウォーカー',44.90,39.32],['ナイトロード',43.55,37.14],
+  ['バイパー',33.76,28.55],['パスファインダー',42.91,33.77],['バトルメイジ',33.42,27.79],['パラディン',35.10,28.92],
+  ['ヒーロー',43.01,36.88],['ビショップ',40.75,34.09],['ファントム',35.12,31.76],['ブラスター',42.37,36.47],
+  ['フレイムウィザード',38.06,32.93],['ボウマスター',41.24,32.12],['ミハエル',42.71,36.04],['メカニック',34.08,26.80],
+  ['メルセデス',46.79,38.91],['隠月',41.34,37.16],['ララ',36.76,31.87],['ルミナス',41.56,37.14],
+  ['レン',43.35,39.33],['ワイルドハンター',43.92,34.98]
+];
+const RING_TYPES = [['restraint','リストレイントリング'],['continuous','コンティニュアスリング']];
+function ringStonePrice(r){
+  const v = ((S.settings.price||{}).ring||{})[r.stone];
+  return (v===undefined || v===null || v==='') ? r.def : (+v||0);
+}
+/* 研磨1段ぶんの最終ダメ換算の伸び。リストレイントは「領域が効く割合」で薄める。 */
+/* リストレイントの領域内に収まるダメージの割合。職業を選んでいれば表の値(Lv5=20秒, Lv4=15秒)。
+   選んでいなければ設定の割合を Lv5 とみなし、Lv4 は 15/20 倍にする。 */
+function ringZoneOf(ch){
+  const r = RING_ZONE.find(x=>x[0]===ch.ringJob);
+  if(r) return {job:r[0], s5:r[1]/100, s4:r[2]/100};
+  const z = (+S.settings.ringZone||0)/100;
+  return {job:'', s5:z, s4:z*0.75};
+}
+function ringGain(ch, type, from){
+  const c = ch.conv;
+  if(type==='continuous') return 9*(c.bossDmg||0) + 2*(c.atkPct||0);
+  if(type==='restraint'){
+    // 4→5 は持続15→20秒(領域内に入るダメージが s4→s5 に増える)。5→6 は攻撃力%が68→85(+17)で、割合は Lv5 のもの。
+    const z = ringZoneOf(ch);
+    return from===4 ? 68*(c.atkPct||0)*(z.s5-z.s4) : 17*(c.atkPct||0)*z.s5;
+  }
+  return 0;
+}
+function ringCand(ch, it){
+  const r = RING_STEPS.find(x=>x.from===(+it.skLv||0));
+  if(!r || !it.skType) return null;
+  const per = ringStonePrice(r) + r.meso;
+  if(!(per>0)) return null;
+  const gain = ringGain(ch, it.skType, r.from);
+  const tn = (RING_TYPES.find(t=>t[0]===it.skType)||[])[1] || '';
+  return {label: tn+' Lv'+r.from+' → Lv'+r.to+'（'+r.stoneName+'）',
+    detail: '石1個ずつで成功 '+pct(r.p)+' / 平均 '+cnt(1/r.p)+' × '+mel(per)
+          + '（石 '+mel(ringStonePrice(r))+' ＋ メル '+mel(r.meso)+'）/ '+r.full+'個まとめて使うと確実',
+    gain, cost: per/r.p, p: r.p, per, auto:true, step:r};
+}
+
+/* ============================================================
    候補
    ============================================================ */
 function candidates(){
@@ -1710,6 +1829,11 @@ function candidates(){
           detail:(as?('主ステ+'+as+' '):'')+(aa?('攻撃力+'+aa):'')+' / 成功 '+pct(r.suc)+(r.des>0?(' 破壊 '+pct(r.des)):''),
           gain, cost:e.mel, p:r.suc, per:sfCost(it.lv,it.star), extra:e, star:it.star});
       }
+    }
+    // スキルリング: 4→5、5→6 の研磨。石1個ずつ使う前提(平均の石の数はまとめて使っても同じ)。
+    if(it.skill){
+      const rc = ringCand(ch, it);
+      if(rc) out.push(Object.assign({kind:'ring', slot:sl, item:it}, rc));
     }
     // 潜在: 今を超えたらやめる前提で、キューブごとのコスパを出し、一番いいものを候補にする
     if(it.canPot && TIERS.indexOf(it.potGrade) >= 1 && (it.pot||[]).length){
@@ -1932,7 +2056,9 @@ function bestOf(list){
   }) || null;
 }
 function tagOf(k){ return k==='sf' ? '<span class="tag sf">スタフォ</span>'
-  : k==='pot' ? '<span class="tag pot">潜在</span>' : '<span class="tag fl">転生</span>'; }
+  : k==='pot' ? '<span class="tag pot">潜在</span>'
+  : k==='ring' ? '<span class="tag pot" style="color:var(--add)">研磨</span>'
+  : '<span class="tag fl">転生</span>'; }
 
 /* ============================================================
    上の帯（キャラと合計）
@@ -1945,7 +2071,7 @@ function renderBar(){
     sf += itemFlame(it,conv); });
   $('charbar').innerHTML =
     '<div class="nm">'+esc(ch.name)+'<span>'+esc(ch.job||'職業未設定')+'</span></div>'
-   +'<div class="kv">装着<b>'+worn+' / 25</b></div>'
+   +'<div class="kv">装着<b>'+worn+' / '+SLOTS.length+'</b></div>'
    +'<div class="kv">★合計<b>'+stars+'</b></div>'
    +'<div class="kv p">潜在<b>'+p2(sp)+'</b></div>'
    +'<div class="kv a">アディ<b>'+p2(sa)+'</b></div>'
@@ -1965,7 +2091,7 @@ const SORTS_MEL = [['eff','1Gあたりの伸び'],['gain','伸びの大きさ'],
 const SORTS_OWN = [['eff','炎1個あたりの伸び'],['gain','伸びの大きさ'],['slot','部位の順']];
 /* 強化の種類のタブ。色は一覧の「次の一手」に出る札と同じ。 */
 const VIEWS = [['all','全体',''],['sf','スタフォ','var(--accent)'],
-               ['pot','潜在','var(--pot)'],['flame','転生','var(--fl)']];
+               ['pot','潜在','var(--pot)'],['flame','転生','var(--fl)'],['ring','研磨','var(--add)']];
 function renderTools(){
   const view = S.ui.view||'all', own = ownMode();
   $('tools').innerHTML =
@@ -2116,7 +2242,7 @@ function toggleRow(slotKey){
 function cleanupEmpty(slotKey){
   const ch = C(), it = ch.gear[slotKey];
   if(it && !it.name && !it.star && !it.pot.length && !it.add.length
-     && !flameVal(it.flame, ch.conv) && !(it.plans||[]).length) delete ch.gear[slotKey];
+     && !flameVal(it.flame, ch.conv) && !(it.plans||[]).length && !it.skLv) delete ch.gear[slotKey];
 }
 function openItem(slotKey){
   const ch = C();
@@ -2658,7 +2784,19 @@ function rowDetail(sl, it, cands){
     + '<label class="chk"><input type="checkbox" data-k="sf"'+(it.sf?' checked':'')+'>スタフォ可</label>'
     + '<label class="chk"><input type="checkbox" data-k="canPot"'+(it.canPot?' checked':'')+'>潜在あり</label>'
     + '<label class="chk"><input type="checkbox" data-k="canFl"'+(it.canFl?' checked':'')+'>転生の炎あり</label>'
-    + '</div>';
+    + '</div>'
+    + ((sl.sk || it.skill)
+        ? '<div class="dsec"><p class="cap">スキルリング</p>'
+          + (sl.sk ? '' : '<label class="chk"><input type="checkbox" data-k="skill"'+(it.skill?' checked':'')+'>この枠はスキルリング（外すと普通の指輪に戻る）</label>')
+          + (it.skill ? '<div class="grid2" style="margin-top:7px"><label class="f"><span>スキルレベル</span>'
+              + '<input type="number" min="0" max="99" data-k="skLv" value="'+(+it.skLv||0)+'"></label>'
+              + '<label class="f"><span>種類（研磨の計算に使う）</span><select data-k="skType">'
+              + '<option value="">— 選ぶ —</option>'
+              + RING_TYPES.map(t=>'<option value="'+t[0]+'"'+(it.skType===t[0]?' selected':'')+'>'+t[1]+'</option>').join('')
+              + '</select></label></div>' : '')
+          + '<p class="hint">スキルリングは2個まで同時に着けられる。専用の枠が2つあり、普通の指輪の枠とは別。'
+          + 'スタフォ・潜在・転生の炎は付かない。'
+          + 'レベルはゲーム内の装備情報を貼ると読む（読めなければ手で入れる）。</p></div>' : '');
 
   if(it.canPot){
     L += '<div class="dsec"><p class="cap">潜在能力　<span class="ro" style="color:var(--pot)">'+p2(sumLines(it.pot,conv))+'</span></p>'
@@ -2701,6 +2839,7 @@ function rowDetail(sl, it, cands){
       + '<td class="num gain">'+p2(c.gain)+'<span class="sub">伸び</span></td>'
       + '<td class="num eff">'+p2(c.eff)+'<span class="sub">1Gあたり</span></td></tr></tbody></table>';
   }
+  R += ringTable(ch, it);
   R += potTable(ch, sl.k, it);
   R += addTable(ch, sl.k, it);
   R += flameTable(ch, sl.k, it);
@@ -2740,6 +2879,39 @@ function rowDetail(sl, it, cands){
   return '<div class="dbox">'+L+R+GP+'</div>';
 }
 
+/* スキルリングの研磨。次の1段と、その先の1段を並べる。 */
+function ringTable(ch, it){
+  if(!it.skill) return '';
+  const lv = +it.skLv||0;
+  if(lv<4) return '<div class="dsec"><p class="cap">リング研磨</p><p class="hint" style="margin-top:0">'
+    + '研磨できるのはリストレイント・コンティニュアスのLv4以上だけ（Lv4→5、Lv5→6）。</p></div>';
+  if(lv>=6) return '<div class="dsec"><p class="cap">リング研磨</p><p class="hint" style="margin-top:0">Lv6が上限。</p></div>';
+  if(!it.skType) return '<div class="dsec"><p class="cap">リング研磨</p><p class="hint" style="margin-top:0">'
+    + '左の「種類」を選ぶと、研磨の見込みが出る。</p></div>';
+  const rows = RING_STEPS.filter(r=>r.from>=lv).map(r=>{
+    const per = ringStonePrice(r) + r.meso, cost = per/r.p, g = ringGain(ch, it.skType, r.from);
+    return '<tr><td>Lv'+r.from+' → Lv'+r.to+'<span class="sub">'+esc(r.stoneName)+'</span></td>'
+      + '<td class="num">'+mel(per)+'<span class="sub">石1個＋メル</span></td>'
+      + '<td class="num">'+pct(r.p)+'<span class="sub">石1個ずつ</span></td>'
+      + '<td class="num">'+mel(cost)+'<span class="sub">平均'+r.full+'個</span></td>'
+      + '<td class="num gain">'+p2(g)+'</td>'
+      + '<td class="num eff">'+(g>0&&cost>0 ? p2(g/(cost/1e9)) : '—')+'</td></tr>'; }).join('');
+  return '<div class="dsec"><p class="cap">リング研磨 — '+esc((RING_TYPES.find(t=>t[0]===it.skType)||[])[1]||'')+'</p>'
+    + '<div class="scrollx"><table class="mini"><thead><tr><th>段</th><th class="num">1回</th>'
+    + '<th class="num">成功率</th><th class="num">かかるメル</th><th class="num">伸び</th><th class="num">1Gあたり</th></tr></thead>'
+    + '<tbody>'+rows+'</tbody></table></div>'
+    + '<p class="hint">石は1個ずつ使っても、'+RING_STEPS[0].full+'個（信念は'+RING_STEPS[1].full+'個）まとめて使っても、平均で要る石の数は同じ。'
+    + 'まとめて使うと確実だが、途中で当たっても石が戻らない。'
+    + (it.skType==='restraint'
+        ? (function(){ const z = ringZoneOf(ch);
+            return '<br>リストレイントは領域内でしか効かないので、伸びは<b>領域内に収まるダメージの割合</b>で決まる。'
+            + (z.job ? '「'+esc(z.job)+'」の値（Lv5の持続20秒で '+(z.s5*100).toFixed(2)+'% / Lv4の15秒で '+(z.s4*100).toFixed(2)+'%）を使っている。'
+                      : '職業を選んでいないので、設定の '+(+S.settings.ringZone||0)+'%（Lv4は×0.75）で薄めている。設定で職業を選ぶと、職業ごとの値になる。')
+            + '4→5は持続が5秒伸びる分（68%×割合の差）、5→6は領域内の攻撃力・魔力+17%（割合はLv5の値）。'; })()
+        : '<br>コンティニュアスは4→5も5→6もボスダメージ+9%・攻撃力/魔力+2%で、常時効く前提。')
+    + '<br>確率・効果は韓国wikiより。</p></div>';
+}
+
 /* 純粋攻撃力の検算。段階ごとの攻撃力を並べて、今の転生の値がどれに当たるか出す。
    ここが合わないと「超える確率」が大きく狂うので、目立つように出す。 */
 function baseAtkCheck(it){
@@ -2764,7 +2936,7 @@ function ocrPanel(ch, sl, it){
   let h = '<div id="ocrdrop" class="ocrdrop">'
     + '<b>ゲーム内の装備情報をここに貼る</b>'
     + '<span>画像をドラッグするか、この行を開いたまま Ctrl+V。'
-    + 'レベル・★・転生の炎・武器の純粋攻撃力を読む。'
+    + 'レベル・★・転生の炎・武器の純粋攻撃力、スキルリングのレベルを読む。'
     + '<b>画像はどこにも送られず、この場で処理される。</b></span>'
     + '<input type="file" id="ocrfile" accept="image/*" hidden></div>';
   if(!OCR || OCR.slot!==sl.k) return h;
@@ -2772,6 +2944,7 @@ function ocrPanel(ch, sl, it){
   if(o.err) return h + '<p class="hint" style="color:var(--bad)">'+esc(o.err)+'</p>';
   const f=ocrToFlame(ch,o).flame;
   const rows=[];
+  if(o.skill) rows.push(['スキルリングのレベル', 'Lv.'+o.skill.lv, 'STR〜魔力の「+◯」から（'+o.skill.n+'行が一致）']);
   if(o.lv) rows.push(['装備レベル', o.lv, '']);
   if(o.stars!=null) rows.push(['★', o.stars, '']);
   if(o.base && isW) rows.push(['純粋攻撃力', o.base.v, o.base.kind==='mat'?'魔力':'攻撃力']);
@@ -2852,6 +3025,10 @@ function bindOcr(b, slotKey){
   const ap=b.querySelector('#ocrapply');
   if(ap) ap.onclick=()=>{
     const ch=C(), it=ch.gear[slotKey], o=OCR.data, isW=(slotKey==='weapon'||slotKey==='sub');
+    if(o.skill){
+      it.skill=true; it.skLv=o.skill.lv; it.sf=false; it.canPot=false; it.canFl=false;
+      OCR=null; save(); renderAll(); return;
+    }
     if(o.lv){ const auto=(it.starMax===starCap(it.lv)); it.lv=o.lv; if(auto) it.starMax=starCap(it.lv); }
     if(o.stars!=null && it.sf) it.star=o.stars;
     if(o.base && isW) it.baseAtk=o.base.v;
@@ -2884,7 +3061,7 @@ function ocrRun(file, slotKey){
     im.onload=()=>{ let d;
       try{ d=ocrTooltip(im); }
       catch(e){ d={err:'画像を読めませんでした（'+e.message+'）。'}; }
-      if(d && !d.err && !d.lines.length && d.stars==null && !d.lv)
+      if(d && !d.err && !d.lines.length && d.stars==null && !d.lv && !d.skill)
         d={err:'装備情報が見つかりませんでした。拡大・縮小された画像だと読めないことがあります。'};
       OCR={slot:slotKey, data:d, sel:{}}; renderAll(); };
     im.onerror=()=>{ OCR={slot:slotKey, data:{err:'画像を開けませんでした。'}}; renderAll(); };
@@ -3033,11 +3210,14 @@ function bindRow(b, slotKey){
     const k = i.dataset.k;
     const autoCap = (k==='lv' && it.starMax===starCap(it.lv));
     if(i.type==='checkbox') it[k] = i.checked;
+    else if(k==='skLv') it[k] = Math.max(0, Math.min(99, Math.round(+i.value||0)));
     else if(k==='sfAs'||k==='sfAa') it[k] = (i.value.trim()==='') ? '' : (+i.value||0);
     else if(k==='base') it[k] = parseMel(i.value);
     else if(i.type==='number') it[k] = +i.value||0;
     else it[k] = i.value;
     if(autoCap) it.starMax = starCap(it.lv);
+    // スキルリングはスタフォ・潜在・転生の炎が付かない。付けたら、その3つは外す。
+    if(k==='skill' && it.skill){ it.sf = false; it.canPot = false; it.canFl = false; }
     redraw(); });
   b.querySelectorAll('[data-l]').forEach(i=> i.onchange = ()=>{
     const o = it[i.dataset.l][+i.dataset.i];
@@ -3244,6 +3424,27 @@ function renderSetPrice(){
    +'<b>「使う」を外すと「次の一手」の候補から消える</b>。'
    +'強力・永遠はオークションの在庫次第で、毎回取れる手とは限らないので。'
    +'外しても装備を開いたときの表には残るので、見比べはできる。</p></div>'
+   +'<div class="sect"><h4>リング研磨（スキルリング）</h4>'
+   +'<div class="scrollx"><table class="mini"><thead><tr><th>研磨石</th><th>使い道</th>'
+   +'<th class="num">1個のメル</th><th class="num">研磨1回の使用メル</th></tr></thead><tbody>'
+   + RING_STEPS.map(r=>'<tr><td>'+esc(r.stoneName)+'</td><td>Lv'+r.from+' → Lv'+r.to+'</td>'
+      + '<td class="num"><input type="text" data-ringstone="'+r.stone+'" value="'+mel(ringStonePrice(r))+'" style="width:92px"></td>'
+      + '<td class="num">石1個ごとに '+mel(r.meso)+'</td></tr>').join('')
+   +'</tbody></table></div>'
+   +'<div class="grid2" style="margin-top:8px"><label class="f"><span>このキャラの職業（リストレイントの計算用）</span>'
+   +'<select data-ringjob="1"><option value="">— 選ばない（下の割合を使う）—</option>'
+   + RING_ZONE.map(r=>'<option value="'+esc(r[0])+'"'+(C().ringJob===r[0]?' selected':'')+'>'+esc(r[0])+'</option>').join('')
+   +'</select></label>'
+   +'<label class="f"><span>職業を選ばないときの割合(%)</span>'
+   +'<input type="number" step="0.1" data-ringzone="1" value="'+(+S.settings.ringZone||0)+'"></label></div>'
+   +'<p class="hint">石は<b>1個ずつ使うと成功10%（信念は5%）、10個（信念は20個）まとめて使うと100%</b>で、'
+   +'平均で要る石の数は同じ（生命10個・信念20個）。使うメルも石の数に比例する。'
+   +'確率・使用メル・効果は韓国wiki（namu.wiki「특수 스킬 반지」）より。'
+   +'石の相場の初期値は 2026-10-13 時点の申告（生命 1.5G / 信念 6G）。<br>'
+   +'リストレイントは領域内でしか効かないので、伸びは<b>領域内に収まるダメージの割合</b>で決まり、職業でかなり違う（韓国の集計で約22〜47%）。'
+   +'職業を選ぶと、韓国の有志の表（fmkorea 2026-03-20「전직업 극딜점유율 정리」、環算ジュスタッツのデータ、<b>無保エム最適化の基準</b>）の値を使う。'
+   +'<b>表にない職業（日本のみの職業など）は選べない</b>ので、その場合は右の割合（初期値 20÷120 ≒ 16.7% は時間の割合で、表の値よりずっと低い目安）。'
+   +'コンティニュアスは常時効く前提。</p></div>'
    +'<div class="sect"><h4>等級上昇の書</h4>'
    +'<div class="scrollx"><table class="mini"><thead><tr><th>書</th><th class="num">上昇確率</th>'
    +'<th class="num">1枚のメル</th></tr></thead><tbody>'
@@ -3280,6 +3481,12 @@ function renderSetPrice(){
     p.flameMel[i.dataset.flmel] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-flown]').forEach(i=> i.onchange = ()=>{
     S.settings.flameOwn[i.dataset.flown] = Math.max(0, +i.value||0); save(); redrawKeep(); });
+  $('box-price').querySelectorAll('[data-ringstone]').forEach(i=> i.onchange = ()=>{
+    S.settings.price.ring[i.dataset.ringstone] = parseMel(i.value); save(); redrawKeep(); });
+  $('box-price').querySelectorAll('[data-ringjob]').forEach(i=> i.onchange = ()=>{
+    C().ringJob = i.value; save(); renderAll(); });
+  $('box-price').querySelectorAll('[data-ringzone]').forEach(i=> i.onchange = ()=>{
+    S.settings.ringZone = Math.max(0, Math.min(100, +i.value||0)); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-scr]').forEach(i=> i.onchange = ()=>{
     S.settings.price.scroll[i.dataset.scr] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-cuse]').forEach(i=> i.onchange = ()=>{
