@@ -185,6 +185,16 @@ tr.detail > td{background:var(--sunken);padding:2px 10px 16px!important}
 .rec .alts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:9px;padding-top:8px;border-top:1px solid var(--line2)}
 .rec .alt{font-size:11px;color:var(--dim)}
 .rec .alt .tag{margin-right:4px}
+.rec .ex{margin-top:9px;padding-top:8px;border-top:1px solid var(--line2);display:grid;gap:4px}
+.rec .exr{display:grid;grid-template-columns:96px minmax(0,1fr) auto 64px;gap:8px;align-items:baseline;font-size:12px}
+.rec .exr .ec{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;white-space:nowrap}
+.rec .gj{margin-left:auto}
+.rec details.ex > summary{cursor:pointer;font-size:11px;color:var(--dim);list-style:none}
+.rec details.ex > summary::before{content:'▸ '}
+.rec details.ex[open] > summary::before{content:'▾ '}
+.rec details.ex[open] > summary{margin-bottom:6px}
+.rec .exr .en{font-size:10.5px;color:var(--faint)}
+.rec .exr .ep{color:var(--fg)}
 .dcard.growth{grid-column:1/-1}
 .tp{font-size:10px;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap}
 table.gp td s{text-decoration:none;display:block;font-size:9.5px;color:var(--faint);font-weight:400}
@@ -2480,7 +2490,7 @@ function growthPanel(sl, it, isAdd){
       + '必要レベルの高い能力（手袋のクリティカルダメージなど）が候補から外れるので、'
       + '左の<b>装備レベル</b>を直すと結果が変わる。</p>' : '';
 
-  return '<div class="dcard growth"><h5>育成計画（'+(isAdd?'アディ潜在':'上潜在')+'）'
+  return '<div class="dcard growth" data-gp="'+(isAdd?'add':'pot')+'"><h5>育成計画（'+(isAdd?'アディ潜在':'上潜在')+'）'
     + '<span class="sp">'+esc(cubes.map(c=>cubeShort(c)+' '+mel(cubeCost(c))).join(' / '))+'</span></h5>'
     + '<div class="dsec" style="border-top:0;margin-top:0;padding-top:0">'
     + lvWarn
@@ -2532,6 +2542,51 @@ function growthPanel(sl, it, isAdd){
     + '</div>';
 }
 
+/* おすすめが潜在/アディのキューブのとき、「今を超える」ライン構成の例を出す。
+   候補は bestCombos(強い組み合わせの上位)から作るので、低め・中間・最高の3つは目安。
+   ここに出る構成を狙い撃ちした確率ではない（確率は上の「1回で超える確率」＝今を超える全部の合計）。 */
+document.addEventListener('toggle', ev=>{
+  const d = ev.target;
+  if(d && d.classList && d.classList.contains('exd') && !!S.ui.recEx !== d.open){ S.ui.recEx = d.open; save(); }
+}, true);
+document.addEventListener('click', ev=>{
+  const b = ev.target.closest && ev.target.closest('[data-gojump]'); if(!b) return;
+  ev.stopPropagation();
+  const t = document.querySelector('.dcard.growth[data-gp="'+b.dataset.gojump+'"]');
+  if(t) t.scrollIntoView({block:'start'});
+});
+function recExamples(b){
+  try{
+    if(b.kind!=='pot' || !b.cube || !b.an || b.planIdx!=null) return '';
+    const ch = C(), it = b.item, sk = b.slot.k;
+    const isAdd = /^アディ/.test(b.detail||'');
+    const g = isAdd ? ADD_GROUP[sk] : POT_GROUP[sk];
+    const tier = b.an.tier, cur = b.an.cur;
+    const list = bestCombos(ch, g, tier, +it.lv||0, b.cube, isAdd, 9999)
+      .filter(r=> r.v > cur + 1e-6).sort((x,y)=> x.v-y.v);
+    if(!list.length) return '';
+    // その合計「以上」が出るまで回す場合の期待メル。昇級(上の等級に上がる)ぶんも含める。
+    const lv = +it.lv||0, ti = TIERS.indexOf(tier), upTier = TIERS[ti+1];
+    const up = (upTier && TIERS.indexOf(b.cube.max) > ti)
+      ? (((POT_DATA.cubes[b.cube.d]||{}).up||{})[upTier]||0)/100 : 0;
+    const dS = potDist(ch, g, tier, lv, b.cube, isAdd);
+    const dU = up>0 ? potDist(ch, g, upTier, lv, b.cube, isAdd) : null;
+    const costOf = v=>{
+      const th = v - 5e-5;
+      const p = (dS ? (1-up)*tailOver(dS, th).p : 0) + (dU ? up*tailOver(dU, th).p : 0);
+      return p>0 ? cubeCost(b.cube)/p : 0;
+    };
+    const pick = [['低めで超える例', list[0]], ['中間', list[Math.floor((list.length-1)/2)]], ['最高', list[list.length-1]]];
+    const seen = new Set(), rows = [];
+    pick.forEach(([n,r])=>{ const k = r.parts.join('|'); if(seen.has(k)) return; seen.add(k); rows.push([n,r]); });
+    return '<details class="ex exd"'+(S.ui.recEx?' open':'')+'><summary>'+esc(tier)+'の構成の例を見る（低め・中間・最高）</summary>'
+      + rows.map(([n,r])=>'<div class="exr"><span class="en">'+n+'</span><span class="ep">'+esc(r.parts.join(' ＋ '))
+          + '</span><b class="gain">'+p2(r.v-cur)+'</b><span class="ec">'+(costOf(r.v)>0 ? '約 '+mel(costOf(r.v)) : '—')+'</span></div>').join('')
+      + '<p class="rd">今の '+p2(cur)+' を超えたら止める前提。例は強い組み合わせの一部で、実際はこの間のさまざまな構成が出る。'
+      + '「伸び」は今との差。'
+      + '右の「約◯◯」は、その合計<b>以上</b>が出るまで回す場合の期待メル（その構成ぴったりを狙う値段ではない）。</p></details>';
+  }catch(e){ return ''; }
+}
 /* 開いた装備の「この装備のおすすめ」。候補は eff 降順(手持ちモードは perGain 降順)に並んでいる。 */
 function recCard(cands){
   const own = ownMode();
@@ -2542,7 +2597,10 @@ function recCard(cands){
   const tag = c => kindOf(c)==='add' ? '<span class="tag pot" style="color:var(--add)">アディ</span>' : tagOf(c.kind);
   const b = ok[0];
   let h = '<div class="rec"><div class="rh"><span class="k">この装備のおすすめ</span>'+tag(b)
-    + '<b class="lb">'+esc(b.label)+'</b></div>'
+    + '<b class="lb">'+esc(b.label)+'</b>'
+    + (b.kind==='pot' && b.cube && b.planIdx==null
+        ? '<button class="btn gj" data-gojump="'+(kindOf(b)==='add'?'add':'pot')+'">詳しい育成計画へ ↓</button>' : '')
+    + '</div>'
     + '<div class="rg"><div><span class="n gain">'+p2(b.gain)+'</span><span class="u">伸び</span></div>'
     + (own
         ? '<div><span class="n">'+cnt(b.units)+'</span><span class="u">平均個数</span></div>'
@@ -2550,6 +2608,7 @@ function recCard(cands){
         : '<div><span class="n">'+mel(b.cost)+'</span><span class="u">かかるメル</span></div>'
           + '<div><span class="n eff">'+p2(b.eff)+'</span><span class="u">1Gあたり</span></div>')
     + '</div><p class="rd">'+esc(b.detail||'')+'</p>';
+  h += recExamples(b);
   const seen = {}; seen[kindOf(b)] = 1;
   const alt = [];
   ok.slice(1).forEach(c=>{ const k = kindOf(c); if(seen[k]) return; seen[k]=1; alt.push(c); });
