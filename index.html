@@ -1191,7 +1191,7 @@ function potLineMatch(ch, slotKey, isAdd, lineRank, line){
     if(!e.s) return false;
     let key=e.s[0], v=e.s[1];
     if(key.indexOf('per9_')===0) return false;          // レベル依存の行は値で特定できない
-    v = v + lv250Bonus(key, +ch.__lv||0);
+    v = v + lv250Bonus(key, +ch.__lv||0, isAdd);
     const isPctKey = /Pct$/.test(key) || ['allStatPct','bossDmg','dmg','critDmg','critRate','ignoreDef'].indexOf(key)>=0;
     return v===want && isPctKey===pct;
   });
@@ -1213,10 +1213,10 @@ function potLineMatch(ch, slotKey, isAdd, lineRank, line){
 /* 候補の表示名。レベル補正を数字に反映し、ゲーム内の書き方に寄せる。
    排出率表は「オールステータス」「全スキルのクールタイム」と書くが、
    ゲームのツールチップは「全ステータス」「スキルクールタイム」なので探しにくい。 */
-function potOptName(ch, e){
+function potOptName(ch, e, isAdd){
   let n = e.n;
   if(e.s){
-    const v = e.s[1] + lv250Bonus(e.s[0], +ch.__lv||0);
+    const v = e.s[1] + lv250Bonus(e.s[0], +ch.__lv||0, isAdd);
     n = n.replace(/\+\d+/, '+'+v);
   }
   n = n.replace(' : ', ' ').replace(' ： ', ' ').replace('：', ' ');
@@ -1400,14 +1400,22 @@ function potStat(ch, key){
 }
 /* ライン1本の最終ダメ換算。
    - per9_ は「キャラクター基準9レベル当たり」。キャラのレベルで伸びる(アディにある)。
-   - 上潜在の%系は250レベル以上の装備で+1される(排出率表は120レベル基準・要確認)。
+   - 上潜在の%系は250レベル以上の装備で+1される(排出率表は120レベル基準。韓国wiki・JMS実機で確認済み)。
      アディ側は資料に記載がないので足さない。 */
 /* Lv250以上の装備は潜在の値が+1される。実測(エテルネル)で確認:
    全ステ6%→7% / STR8%→9% / LUK20→21 / 魔力14→15。上潜在・アディの両方で起きる。
-   最大HP/MPだけ別の伸び方をしているようだが火力に関係しないので無視。 */
+   最大HP/MPだけ別の伸び方をしているようだが火力に関係しないので無視。
+   ボスダメは上潜在だけ+5(2026-10-13、Lv250弓・チューナー・スタッフのスクショで確認:
+   レジェ1行目45、ユニーク帯35。従来の最高は40)。アディのボスは韓国wikiで+2だがJMS未確認なので足さない。
+   ダメージ%・防御無視・クリ率も韓国wikiでは上がるが、JMSで未確認＆採用率が低いので足していない。 */
 const P250 = ['STRPct','DEXPct','INTPct','LUKPct','allStatPct',
               'STR','DEX','INT','LUK','atk','matk'];
-function lv250Bonus(key, lv){ return (lv>=250 && P250.indexOf(key)>=0) ? 1 : 0; }
+function lv250Bonus(key, lv, isAdd){
+  if(lv<250) return 0;
+  if(P250.indexOf(key)>=0) return 1;
+  if(key==='bossDmg' && !isAdd) return 5;   // 上潜在のみ。アディのボスは未確認
+  return 0;
+}
 function potLineValue(ch, s, lv, isAdd){
   if(!s) return 0;
   let key = s[0], v = s[1];
@@ -1415,7 +1423,7 @@ function potLineValue(ch, s, lv, isAdd){
     key = key.slice(5);
     v = v * Math.floor(Math.max(9,(+ch.charLv||260))/9);
   }else{
-    v = v + lv250Bonus(key, lv);
+    v = v + lv250Bonus(key, lv, isAdd);
   }
   const k = potStat(ch, key);
   return k ? (ch.conv[k]||0)*v : 0;
@@ -2359,11 +2367,11 @@ function growthUnit(ch, group){
 /* ものさし（攻撃力% や 主ステ%）の実値だけを見た分布。
    最終ダメ換算の分位点を割り戻すと「攻11%」のような<b>実際には出ない数字</b>になるので、
    着地点の表はこちらで出す。主ステのものさしでは、オールステータス%も主ステに足される。 */
-function rawLineVal(ch, s, lv){
+function rawLineVal(ch, s, lv, isAdd){
   if(!s) return 0;
   const key = s[0];
   if(key.indexOf('per9_')===0) return s[1] * Math.floor(Math.max(9,(+ch.charLv||260))/9);
-  return s[1] + lv250Bonus(key, lv);
+  return s[1] + lv250Bonus(key, lv, isAdd);
 }
 function unitLineVal(ch, e, lv, key){
   if(!e.s) return 0;
@@ -2402,7 +2410,7 @@ const PCTKEY = ['allStatPct','bossDmg','dmg','ignoreDef','critDmg','critRate'];
 function potLineLabel(ch, e, lv, isAdd){
   const k = potStat(ch, e.s[0]); if(!k) return null;
   const key = e.s[0].indexOf('per9_')===0 ? e.s[0].slice(5) : e.s[0];
-  const v = rawLineVal(ch, e.s, lv);
+  const v = rawLineVal(ch, e.s, lv, isAdd);
   const isPct = /Pct$/.test(key) || PCTKEY.indexOf(key)>=0;
   let nm = shortStat(k);
   if(nm.slice(-1)==='%') nm = nm.slice(0,-1);   // 「攻%3%」にならないように
@@ -3079,7 +3087,7 @@ function ocrPanel(ch, sl, it){
       // その等級で付きうる行を全部候補に出す(火力に関係しない行もそのまま記録したいので)
       const pool = (((isAdd?POT_DATA.add:POT_DATA.slots)[g]||{})[ln.rank]) || [];
       const opt = e=>'<option value="'+esc(e.n)+'"'+(OCR.sel[id]===e.n?' selected':'')+'>'
-        + esc(potOptName(ch, e)) + '</option>';
+        + esc(potOptName(ch, e, isAdd)) + '</option>';
       const hot = pool.filter(e=>e.s && potKeyToStat(ch, e.s[0].replace(/^per9_/,''))!=='other');
       const rest = pool.filter(e=>hot.indexOf(e)<0);
       const sel = '<select data-potsel="'+id+'" style="min-width:160px">'
@@ -3141,8 +3149,8 @@ function bindOcr(b, slotKey){
         if(!e){ out.push({t:'other', v:0}); return; }
         // 火力に関係しない行も、何が付いているか分かるように名前ごと残す
         const t = e.s ? potKeyToStat(ch, e.s[0].replace(/^per9_/,'')) : 'other';
-        const v = e.s ? (e.s[1] + lv250Bonus(e.s[0], it.lv)) : 0;
-        out.push(t==='other' ? {t:'other', v:v, n:potOptName(ch, e)} : {t:t, v:v});
+        const v = e.s ? (e.s[1] + lv250Bonus(e.s[0], it.lv, isAdd)) : 0;
+        out.push(t==='other' ? {t:'other', v:v, n:potOptName(ch, e, isAdd)} : {t:t, v:v});
       });
       if(isAdd){ it.addGrade=bl.rank; it.add=out; } else { it.potGrade=bl.rank; it.pot=out; }
     });
@@ -3196,7 +3204,7 @@ function potTable(ch, slotKey, it){
       + '<td class="num gain">'+(r.a.p>0?p2(r.a.gain):'—')+'</td>'
       + '<td class="num eff">'+(r.eff?p2(r.eff):'—')+'</td></tr>').join('')
     + '</tbody></table></div>'
-    + (it.lv>=250 ? '<p class="hint" style="color:var(--warn)">Lv250以上なので、表の値(Lv120基準)にステ%系だけ+1して計算している。<b>要確認</b>。</p>' : '')
+    + (it.lv>=250 && ['weapon','sub','emblem'].indexOf(slotKey)>=0 ? '<p class="hint" style="color:var(--warn)">Lv250の武器系は、ダメージ%・防御無視・クリ率・アディのボスダメが未確認のため補正していない。</p>' : '')
     + '<p class="hint">排出率は公開スプレッドシート「潜在能力排出率まとめ」の ver4.17〜 の値（上潜在のみ）。必要レベルに届かない能力は除いて割り直している。</p></div>';
 }
 
