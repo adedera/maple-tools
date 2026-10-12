@@ -369,9 +369,13 @@ const CUBES = [
   {k:'master',     n:'名匠のキューブ',   d:'名匠のキューブ',   tbl:'f', mel:40000000, max:'レジェンダリー'},
   {k:'neo',        n:'ネオキューブ',     d:'レッドキューブ',   tbl:'p', pt:150, pt11:1500, max:'レジェンダリー'},
   {k:'mega',       n:'メガキューブ',     d:'ブラックキューブ', tbl:'p', pt:320, pt11:3200, max:'レジェンダリー'},
-  /* アディショナル潜在用。行ごとの排出率の資料が無いので値段だけ持つ(自動計算はしない)。 */
+  /* アディショナル潜在用。行ごとの排出率はアディ専用シート、昇級・2〜3行目の確率はキューブシートから。 */
   {k:'neoadd',     n:'ネオアディショナルキューブ', d:'アディショナルキューブ/ホワイトアディショナルキューブ',
-   tbl:'p', pt:390, pt11:3900, max:'レジェンダリー', addOnly:true}
+   tbl:'p', pt:390, pt11:3900, max:'レジェンダリー', addOnly:true},
+  /* 韓国の「怪しいエディショナルキューブ」に相当。レア→エピックの昇級用で、最高はエピック。
+     値段はオークション相場(2026-10-13時点で1個160,000メル)。設定の「キューブ1個の値段」で直す。 */
+  {k:'rareadd',     n:'レアアディショナルキューブ', d:'怪しいアディショナルキューブ',
+   tbl:'p', mel:160000, max:'エピック', addOnly:true}
 ];
 const POT_CUBES = CUBES.filter(c=>!c.addOnly);
 /* アディショナル潜在は部位のまとめ方が上潜在と違う(ベルトがアクセサリ側など) */
@@ -463,7 +467,7 @@ function defSettings(){
   return {
     // メル建てのキューブはオークションの相場で動くので、値段は設定で持つ(初期値は目安)。
     price:{ ptRate:800000, use11:true, cubeFee:0,
-            cubeMel:{ suspicious:5000, craftsman:5000000, master:40000000 },
+            cubeMel:{ suspicious:5000, craftsman:5000000, master:40000000, rareadd:160000 },
             flameMel:{ power:300000, eternal:2400000 },
             /* 等級上昇の書。相場で動くので空のまま（入れると育成計画の費用に効く）。 */
             scroll:{ epi:0, uni30:0, uni60:0, uni80:0, uni100:0, legend:0 } },
@@ -474,7 +478,7 @@ function defSettings(){
     /* キューブも同じ。職人と名匠はユーザー間取引しか入手手段が無く、
        強力・永遠の炎より流通が少ない。数を揃えられないことのほうが多いので、
        この2つだけ既定で外してある。 */
-    cubeUse:{ suspicious:true, craftsman:false, master:false, neo:true, mega:true, neoadd:true },
+    cubeUse:{ suspicious:true, craftsman:false, master:false, neo:true, mega:true, neoadd:true, rareadd:true },
     cubeUseV:2,
     /* 転生スコア(韓国で言う「추옵급」)の重み。主ステに換算した合計。
        主ステ×1・攻マ×4・オールステ%×10 は広く共通。ボスダメ・ダメージは資料でブレるので変えられる。
@@ -2276,7 +2280,7 @@ function mainPctLine(ch, group, tier, lv){
    「ボス40+ボス40+攻12」のような現実の狙い目がそのまま目標になる。 */
 function growthLadder(ch, group, lv, cube, isAdd, from, cur, rungs){
   const all = new Map();
-  for(let i=Math.max(1,TIER4.indexOf(from)); i<TIER4.length; i++){
+  for(let i=Math.max(0,TIER4.indexOf(from)); i<TIER4.length; i++){
     const t = TIER4[i];
     bestCombos(ch, group, t, lv, cube, isAdd, 9999).forEach(r=>{
       const k = Math.round(r.v*100)/100;
@@ -2298,24 +2302,37 @@ function growthLadder(ch, group, lv, cube, isAdd, from, cur, rungs){
   return out.sort((a,b)=> a.v-b.v);
 }
 
+/* キューブ名の短縮(表の小さい字用) */
+function cubeShort(c){ return c.n.replace('ショナルキューブ','').replace('キューブ',''); }
 function growthPanel(sl, it, isAdd){
   const ch = C();
   const group = isAdd ? ADD_GROUP[sl.k] : POT_GROUP[sl.k];
   const grade = isAdd ? it.addGrade : it.potGrade;
   if(!group || !it.canPot || TIER4.indexOf(grade) < 0) return '';
-  const cube = CUBES.find(c=> c.k === (isAdd ? 'neoadd' : 'mega'));
-  if(!cube) return '';
-  const C0 = cubeCost(cube), U = (POT_DATA.cubes[cube.d]||{}).up || {};
+  /* 使うがONのキューブ全部で、目標ごとに一番安い回し方を選ぶ。
+     全部OFFなら、そのグループの全キューブから選ぶ。 */
+  const pool = (isAdd ? ADD_CUBES : POT_CUBES).filter(c=> cubeCost(c)>0);
+  let cubes = pool.filter(cubeOn);
+  if(!cubes.length) cubes = pool;
+  if(!cubes.length) return '';
+  /* 「等級ごとの着地点」など形を見る表の見本は、一番上の等級まで回せるキューブ */
+  const cube = cubes.slice().sort((a,b)=>
+    TIERS.indexOf(b.max)-TIERS.indexOf(a.max) || cubeCost(b)-cubeCost(a))[0];
+  const topIdx = TIERS.indexOf(cube.max) - 1;          // TIER4 での最高
   const UN = growthUnit(ch, group), unit = UN.conv || 0;
-  if(!(unit>0) || !(C0>0)) return '';
+  if(!(unit>0)) return '';
   const cur = sumLines(isAdd ? it.add : it.pot, ch.conv);
-  const ti = Math.max(1, TIER4.indexOf(grade));
+  const ti = TIER4.indexOf(grade);
 
-  const D = {}, DU = {};
-  TIER4.forEach(t=>{
-    const d = potDist(ch, group, t, it.lv, cube, isAdd); if(d) D[t] = d;
-    const u = unitDist(ch, group, t, it.lv, cube, isAdd, UN.key); if(u) DU[t] = u;
+  const Dc = {};                                        // Dc[キューブ][等級] = 3行合計の分布
+  cubes.forEach(c=>{
+    Dc[c.k] = {};
+    TIER4.forEach((t,i)=>{
+      if(TIERS.indexOf(c.max)-1 < i) return;            // その等級を回せないキューブ
+      const d = potDist(ch, group, t, it.lv, c, isAdd); if(d) Dc[c.k][t] = d;
+    });
   });
+  const D = Dc[cube.k];
   if(!Object.keys(D).length) return '';
 
   const qAt = (d,q)=>{ const xs=[...d.entries()].sort((a,b)=>b[0]-a[0]); let a=0;
@@ -2356,16 +2373,20 @@ function growthPanel(sl, it, isAdd){
     });
   });
 
-  /* ② 昇級にかかるもの（キューブ／書） */
+  /* ② 昇級にかかるもの。キューブごとに出し、一番安いものをルートに使う */
   let t2 = '', t3 = '', upc = {};
-  for(let i=ti; i<TIER4.length-0 && i<4; i++){
-    const to = TIER4[i+1]; if(!to) break;
-    const p = (U[to]||0)/100; if(!(p>0)) continue;
-    const byCube = C0/p;
-    upc[to] = {cube:byCube, best:byCube, how:'キューブ'};
-    t2 += '<tr><td>'+tierPill(TIER4[i])+' → '+tierPill(to)+'</td>'
-        + '<td class="num">'+(p*100).toFixed(4)+'%</td><td class="num">'+cnt(1/p).replace('個','回')+'</td>'
-        + '<td class="num">'+medTries(p)+'回</td><td class="num">'+mel(byCube)+'</td></tr>';
+  for(let i=ti; i<3; i++){
+    const to = TIER4[i+1], toIdx = i+1;
+    cubes.forEach(c=>{
+      if(TIERS.indexOf(c.max)-1 < toIdx) return;        // そこまで上げられないキューブ
+      const p = (((POT_DATA.cubes[c.d]||{}).up||{})[to]||0)/100; if(!(p>0)) return;
+      const per = cubeCost(c), byCube = per/p;
+      if(!upc[to] || byCube < upc[to].cube) upc[to] = {cube:byCube, best:byCube, how:cubeShort(c)};
+      t2 += '<tr><td>'+tierPill(TIER4[i])+' → '+tierPill(to)
+          + (cubes.length>1 ? '<span class="sub">'+esc(c.n)+'</span>' : '')+'</td>'
+          + '<td class="num">'+(p*100).toFixed(4)+'%</td><td class="num">'+cnt(1/p).replace('個','回')+'</td>'
+          + '<td class="num">'+medTries(p)+'回</td><td class="num">'+mel(byCube)+'</td></tr>';
+    });
   }
   if(!isAdd){
     SCROLLS.forEach(s=>{
@@ -2380,43 +2401,77 @@ function growthPanel(sl, it, isAdd){
   }
 
   /* ③ どこまで狙うなら、どの等級か */
-  const heads = TIER4.slice(ti);
+  const heads = TIER4.slice(ti, topIdx+1);
   const ladder = growthLadder(ch, group, it.lv, cube, isAdd, grade, cur, 8);
   const LIMIT = 1e12;        // 1兆メルを超えたら「届かない」扱い。桁を出しても意味がない。
-  let t4 = '', advice = [], prev = null;
+  /* 目標X・最終等級tのときの費用 = 昇級の費用 + その等級でXに届くまで回す費用(一番安いキューブ) */
+  const route = (t, X)=>{
+    let add = 0;
+    for(let i=ti+1; i<=TIER4.indexOf(t); i++){
+      const u = upc[TIER4[i]]; if(!u) return {c:Infinity};
+      add += u.best;
+    }
+    let roll = Infinity, rc = null;
+    cubes.forEach(c=>{
+      const d = Dc[c.k][t]; if(!d) return;
+      const p = tailP(d, X); if(!(p>0)) return;
+      const v = cubeCost(c)/p; if(v < roll){ roll = v; rc = c; }
+    });
+    return {c: add + roll, rc};
+  };
+  const rows = [];
+  let advice = [], prev = null;
   ladder.forEach(L=>{
     const X = L.v;
-    if(X <= cur + 1e-9) return;                       // 今より下は出さない
+    if(X <= cur + 1e-9) return;                         // 今より下は出さない
     let best = null, any = null; const cells = [];
     heads.forEach(t=>{
-      let add = 0, ok = true;
-      for(let i=ti+1; i<=TIER4.indexOf(t); i++){
-        const u = upc[TIER4[i]]; if(!u){ ok=false; break; } add += u.best;
-      }
-      const d = D[t], p = d ? tailP(d, X) : 0;
-      const c = (ok && p>0) ? add + C0/p : Infinity;
-      cells.push([c, t]);
-      if(isFinite(c) && (!any || c < any[0])) any = [c, t];
-      if(c < LIMIT && (!best || c < best[0])) best = [c, t];
+      const r = route(t, X);
+      cells.push([r.c, t, r.rc]);
+      if(isFinite(r.c) && (!any || r.c < any[0])) any = [r.c, t];
+      if(r.c < LIMIT && (!best || r.c < best[0])) best = [r.c, t];
     });
     const pick = best || any;
-    if(!pick) return;                                 // どのルートも計算できない行だけ落とす
+    if(!pick) return;                                   // どのルートも計算できない行だけ落とす
     if(best){
       if(prev && prev !== best[1]) advice.push(p2(X)+'から'+tierPill(best[1]));
       prev = best[1];
     }
+    rows.push({L, X, cells, pick, ok:!!best,
+      eff: best ? (X-cur)/(best[0]/1e9) : 0});
+  });
+  /* コスパ最良の目標(総額あたりの伸びが最大)と、ひとつ前の目標からの追加分の効率 */
+  let rec = null;
+  rows.forEach((r,i)=>{
+    if(r.ok && r.eff>0 && (!rec || r.eff > rec.eff)) rec = r;
+    const p = rows[i-1];
+    r.marg = (p && p.ok && r.ok && r.pick[0] > p.pick[0])
+      ? (r.X-p.X)/((r.pick[0]-p.pick[0])/1e9) : null;
+  });
+  let t4 = '';
+  rows.forEach(r=>{
+    const L = r.L, X = r.X;
     const pureUnit = L.parts.indexOf(UN.label)===0 && !/クリダメ|ボス|ダメ\d|無視/.test(L.parts);
     // 行は「ここまで伸ばす」という到達ラインなので数値を主役にする。
     // 組み合わせはその値になる例であって、その形ぴったりを狙う話ではない。
-    t4 += '<tr'+(best?'':' style="opacity:.55"')+'><td>'+p2(X)+' まで'
+    t4 += '<tr'+(r===rec?' class="here"':(r.ok?'':' style="opacity:.55"'))+'><td>'+p2(X)+' まで'
+        + (r===rec?' <span class="sub" style="display:inline;color:var(--ok)">← コスパ最良</span>':'')
         + '<s>≒ '+esc(L.parts)
         + (pureUnit ? '　'+UN.label+Math.round(X/unit)+'%相当' : '')+'</s></td>'
-      + cells.map(([c,t])=>'<td class="num'+(pick[1]===t?' gain':'')+'">'
-          + (c < LIMIT ? mel(c)
+      + r.cells.map(([c,t,rc])=>'<td class="num'+(r.pick[1]===t?' gain':'')+'">'
+          + (c < LIMIT ? mel(c) + (cubes.length>1 && rc ? '<span class="sub">'+esc(cubeShort(rc))+'</span>' : '')
              : (isFinite(c) ? '<span style="color:var(--faint)">1兆超</span>'
                             : '<span style="color:var(--faint)">—</span>'))+'</td>').join('')
-      + '<td class="num">'+tierPill(pick[1])+'</td></tr>';
+      + '<td class="num">'+tierPill(r.pick[1])+'</td>'
+      + '<td class="num eff">'+(r.ok ? p2(r.eff) : '—')
+        + (r.marg!==null ? '<span class="sub">この段だけ '+p2(r.marg)+'</span>' : '')+'</td></tr>';
   });
+  const recLine = rec
+    ? '<p class="hint" style="font-size:13px;color:var(--text)"><b style="color:var(--ok)">コスパで選ぶなら '
+      + p2(rec.X)+' まで</b>（≒ '+esc(rec.L.parts)+'）を '+tierPill(rec.pick[1])
+      + (rec.pick[1]===grade ? 'のまま' : 'に上げて')+' 回す。約 '+mel(rec.pick[0])
+      + '、1Gあたり '+p2(rec.eff)+'。<br><span style="color:var(--dim)">'
+      + 'これより高い目標は「この段だけ」の効率が下がっていくので、欲しい伸びと予算で決める。</span></p>' : '';
 
   // 必要レベルで絞っているので、装備レベルが入っていないと強い行が消える。
   // 手袋のクリティカルダメージ(必要Lv50)で実際に起きたので知らせる。
@@ -2426,9 +2481,10 @@ function growthPanel(sl, it, isAdd){
       + '左の<b>装備レベル</b>を直すと結果が変わる。</p>' : '';
 
   return '<div class="dcard growth"><h5>育成計画（'+(isAdd?'アディ潜在':'上潜在')+'）'
-    + '<span class="sp">'+esc(cube.n)+' '+mel(C0)+'/個</span></h5>'
+    + '<span class="sp">'+esc(cubes.map(c=>cubeShort(c)+' '+mel(cubeCost(c))).join(' / '))+'</span></h5>'
     + '<div class="dsec" style="border-top:0;margin-top:0;padding-top:0">'
     + lvWarn
+    + (t4 ? '<p class="cap">どこまで狙うなら、どの等級を目指すか</p>'+recLine : '')
     + '<p class="cap">等級ごとに、どのへんに着地するか</p>'
     + '<div class="scrollx"><table class="mini gp"><thead><tr><th>等級</th>'
     + '<th class="num">10個ぶん<span class="sub" style="font-weight:400">上位10%</span></th>'
@@ -2459,10 +2515,10 @@ function growthPanel(sl, it, isAdd){
         + '<p class="hint">「これ以下なら書が安い」＝ キューブで昇級を狙う費用 × 書の上昇確率。'
         + 'これより安く買えるなら書のほうが得。相場は左の「値段と確率」に入れると下の表にも効く。'
         + '<br>書は<b>失敗しても書が消えるだけで潜在は変わらない</b>ので、平均で要る数は 1÷確率。</p></div>' : '')
-    + (t4 ? '<div class="dsec"><p class="cap">どこまで狙うなら、どの等級を目指すか</p>'
+    + (t4 ? '<div class="dsec"><p class="cap">目標ごとの費用（各等級で目標に届くまで）</p>'
         + '<div class="scrollx"><table class="mini gp"><thead><tr><th>目標</th>'
         + heads.map(t=>'<th class="num">'+t+(t===grade?'のまま':'へ')+'</th>').join('')
-        + '<th class="num">安いのは</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
+        + '<th class="num">安いのは</th><th class="num">1Gあたり</th></tr></thead><tbody>'+t4+'</tbody></table></div>'
         + (advice.length ? '<p class="hint"><b style="color:var(--ok)">'+advice.join(' / ')+'</b> を目指したほうが安い。</p>' : '')
         + '<p class="hint">各行は<b>「そこまで伸ばす」という到達ライン</b>で、'
         + '小さい字の「≒」は<b>ちょうどその値になる組み合わせの例</b>。'
@@ -2470,7 +2526,9 @@ function growthPanel(sl, it, isAdd){
         + '費用は<b>その値以上に届くまで</b>なので、'
         + 'ボスダメージなど別の組み合わせで届いた場合も数えている（例の形そのものを出す確率はもっとずっと低い）。'
         + '<b>1兆超</b>の行は現実的ではないが、理論値がどこか分かるように残してある。'
-        + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。</p></div>' : '')
+        + '「上げる」側の費用は<b>昇級までの平均＋その等級で目標を出すまでの平均</b>（昇級待ちの間もラインは引き直されるので安全側）。'
+        + (cubes.length>1 ? '<br>使うがONのキューブから、<b>昇級・目標回しとも一番安いもの</b>を選んでいる（セルの小さい字が回すキューブ）。' : '')
+        + '<br>「1Gあたり」＝ 目標までの伸び ÷ 総額。「この段だけ」は、ひとつ前の目標から先の追加分だけで見た効率。</p></div>' : '')
     + '</div>';
 }
 
@@ -3098,7 +3156,7 @@ function renderSetPrice(){
    +'<div class="scrollx"><table class="mini"><thead><tr><th class="num">使う</th><th>キューブ</th>'
    +'<th>値段</th><th class="num">1個</th></tr></thead><tbody>'
    + CUBES.map(c=>'<tr><td class="num"><input type="checkbox" data-cuse="'+c.k+'"'+(cubeOn(c)?' checked':'')+'></td>'
-     + '<td'+(cubeOn(c)?'':' style="color:var(--faint)"')+'>'+esc(c.n)+'<span class="sub">'+(c.addOnly?'アディ専用・自動計算なし':'〜'+c.max)+'</span></td>'
+     + '<td'+(cubeOn(c)?'':' style="color:var(--faint)"')+'>'+esc(c.n)+'<span class="sub">'+(c.addOnly?'アディ専用 〜'+c.max:'〜'+c.max)+'</span></td>'
      + '<td>'+(c.mel!==undefined
          ? '<input type="text" data-cube="'+c.k+'" value="'+mel(cubeCost(c))+'" style="width:110px">'
          : (p.use11 ? (c.pt11+'P / 11個') : (c.pt+'P')))+'</td>'
