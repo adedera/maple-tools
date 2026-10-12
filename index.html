@@ -331,10 +331,10 @@ const SLOTS = [
   /* スキルリング専用の枠。4番目の指輪枠と、4Lv以上のスキルリングで開く追加枠。スタフォ・潜在・転生の炎は付かない。 */
   {k:'ring4',   n:'スキルリング①', c:'装飾品', sf:0,pot:0,fl:0, lv:110, sk:1},
   {k:'ring5',   n:'スキルリング②', c:'装飾品', sf:0,pot:0,fl:0, lv:110, sk:1},
-  {k:'belt',    n:'ベルト',    c:'装飾品', sf:1,pot:1,fl:1, lv:200},
+  {k:'belt',    n:'ベルト',    c:'装飾品', sf:1,pot:1,fl:1, lv:200, ex:1},
   {k:'pocket',  n:'ポケット',  c:'装飾品', sf:0,pot:0,fl:1, lv:160},
-  {k:'face',    n:'顔飾り',    c:'装飾品', sf:1,pot:1,fl:1, lv:160},
-  {k:'eye',     n:'目飾り',    c:'装飾品', sf:1,pot:1,fl:1, lv:160},
+  {k:'face',    n:'顔飾り',    c:'装飾品', sf:1,pot:1,fl:1, lv:160, ex:1},
+  {k:'eye',     n:'目飾り',    c:'装飾品', sf:1,pot:1,fl:1, lv:160, ex:1},
   {k:'ear',     n:'耳飾り',    c:'装飾品', sf:1,pot:1,fl:1, lv:200},
   {k:'pend1',   n:'ペンダント',c:'装飾品', sf:1,pot:1,fl:1, lv:200},
   {k:'pend2',   n:'ペンダント',c:'装飾品', sf:1,pot:1,fl:1, lv:200},
@@ -484,7 +484,9 @@ function defSettings(){
             /* 等級上昇の書。相場で動くので空のまま（入れると育成計画の費用に効く）。 */
             scroll:{ epi:0, uni30:0, uni60:0, uni80:0, uni100:0, legend:0 },
             /* リング研磨の石。空なら RING_STEPS の初期値(2026-10-13時点の申告: 生命1.5G・信念6G)。 */
-            ring:{} },
+            ring:{},
+            /* エクセプショナルハンマーの相場(ベルト・顔飾り・目飾り)。空なら EXC_DEF の初期値。 */
+            exc:{} },
     /* リストレイントの領域内に収まるダメージの割合(%)。初期値は 20秒÷120秒 の時間割合。 */
     ringZone:16.7,
     flameOwn:{ power:0, eternal:0, black:0, abyss:0 },
@@ -553,6 +555,7 @@ function migrate(o){
   o.settings.price = Object.assign(defSettings().price, o.settings.price||{});
   o.settings.price.cubeMel = Object.assign(defSettings().price.cubeMel, o.settings.price.cubeMel||{});
   o.settings.price.ring = Object.assign({}, o.settings.price.ring||{});
+  o.settings.price.exc = Object.assign({}, o.settings.price.exc||{});
   o.settings.price.flameMel = Object.assign(defSettings().price.flameMel, o.settings.price.flameMel||{});
   o.settings.flameOwn = Object.assign(defSettings().flameOwn, o.settings.flameOwn||{});
   o.settings.flameUse = Object.assign(defSettings().flameUse, o.settings.flameUse||{});
@@ -1743,6 +1746,43 @@ function sfChance(it, from, to, budget, n){
 }
 
 /* ============================================================
+   エクセプショナル強化（ベルト・顔飾り・目飾り。今のJMSで流通している3部位だけ）
+   出典: namu.wiki「익셉셔널 강화」。1回目は成功100%・メル0・ハンマー1個。
+   上昇値は ベルト: オールステ+20 攻撃力/魔力+15 HP/MP+1000、顔飾り・目飾り: オールステ+15 攻撃力/魔力+10 HP/MP+750。
+   韓国wikiの表と、JMSのハンマーのアイテム情報(ユーザー提供の画像 2026-10-13)で一致を確認済み。
+   JMSの顔飾りハンマーは「ルージュコントロールマシンマーク、傲慢の原罪」の両方に使える。
+   2回目以降は光輝セット(傲慢の原罪など)だけで、韓国では成功50%・25%、失敗するとハンマーもメルも消える。入れていない。
+   ============================================================ */
+const EXC_DEF = [
+  {k:'belt', n:'ベルト',  all:20, atk:15, hp:1000, def:8e9, items:['夢幻のベルト']},
+  {k:'face', n:'顔飾り',  all:15, atk:10, hp:750,  def:17e9, items:['ルージュコントロールマシンマーク','傲慢の原罪']},
+  {k:'eye',  n:'目飾り',  all:15, atk:10, hp:750,  def:40e9, items:['魔力が宿った眼帯']}
+];
+const EXC_MAP = {}; EXC_DEF.forEach(x=>EXC_MAP[x.k]=x);
+/* 対象かどうか。装備名は手入力なので、手でのチェック(excOk)があればそれを、無ければ名前で決める。 */
+function excEligible(sl, it){
+  const x = EXC_MAP[sl.k]; if(!x) return false;
+  if(typeof it.excOk==='boolean') return it.excOk;
+  return x.items.some(n=> String(it.name||'').indexOf(n)>=0);
+}
+function excPrice(k){
+  const v = ((S.settings.price||{}).exc||{})[k];
+  return (v===undefined || v===null || v==='') ? EXC_MAP[k].def : (+v||0);
+}
+function excCand(ch, sl, it){
+  const x = EXC_MAP[sl.k];
+  if(!x || it.exc || !excEligible(sl, it)) return null;
+  const c = ch.conv, per = excPrice(sl.k);
+  if(!(per>0)) return null;
+  // オールステは主ステとサブステの両方に付く
+  const gain = x.all*((c.mainStat||0)+(c.subStat||0)) + x.atk*(c.atk||0);
+  return {kind:'exc', slot:sl, item:it, auto:true,
+    label:'エクセプショナル強化（ハンマー1個）',
+    detail:'オールステ+'+x.all+' 攻撃力+'+x.atk+' / 成功 100% × ハンマー '+mel(per),
+    gain, cost:per, p:1, per};
+}
+
+/* ============================================================
    リング研磨（スキルリングのLv4→5、Lv5→6）
    出典: namu.wiki「특수 스킬 반지」の「반지 연마」。日本版も同じ設定とのユーザー申告。
    石1個につき成功10%（生命の研磨石 4→5）/ 5%（信念の研磨石 5→6）、石1個ごとにメルを使う。
@@ -1829,6 +1869,11 @@ function candidates(){
           detail:(as?('主ステ+'+as+' '):'')+(aa?('攻撃力+'+aa):'')+' / 成功 '+pct(r.suc)+(r.des>0?(' 破壊 '+pct(r.des)):''),
           gain, cost:e.mel, p:r.suc, per:sfCost(it.lv,it.star), extra:e, star:it.star});
       }
+    }
+    // エクセプショナル強化: ハンマー1個で成功100%
+    if(sl.ex){
+      const ec = excCand(ch, sl, it);
+      if(ec) out.push(ec);
     }
     // スキルリング: 4→5、5→6 の研磨。石1個ずつ使う前提(平均の石の数はまとめて使っても同じ)。
     if(it.skill){
@@ -2058,6 +2103,7 @@ function bestOf(list){
 function tagOf(k){ return k==='sf' ? '<span class="tag sf">スタフォ</span>'
   : k==='pot' ? '<span class="tag pot">潜在</span>'
   : k==='ring' ? '<span class="tag pot" style="color:var(--add)">研磨</span>'
+  : k==='exc' ? '<span class="tag pot" style="color:var(--ok)">エクセ</span>'
   : '<span class="tag fl">転生</span>'; }
 
 /* ============================================================
@@ -2091,7 +2137,8 @@ const SORTS_MEL = [['eff','1Gあたりの伸び'],['gain','伸びの大きさ'],
 const SORTS_OWN = [['eff','炎1個あたりの伸び'],['gain','伸びの大きさ'],['slot','部位の順']];
 /* 強化の種類のタブ。色は一覧の「次の一手」に出る札と同じ。 */
 const VIEWS = [['all','全体',''],['sf','スタフォ','var(--accent)'],
-               ['pot','潜在','var(--pot)'],['flame','転生','var(--fl)'],['ring','研磨','var(--add)']];
+               ['pot','潜在','var(--pot)'],['flame','転生','var(--fl)'],['ring','研磨','var(--add)'],
+               ['exc','エクセ','var(--ok)']];
 function renderTools(){
   const view = S.ui.view||'all', own = ownMode();
   $('tools').innerHTML =
@@ -2784,6 +2831,8 @@ function rowDetail(sl, it, cands){
     + '<label class="chk"><input type="checkbox" data-k="sf"'+(it.sf?' checked':'')+'>スタフォ可</label>'
     + '<label class="chk"><input type="checkbox" data-k="canPot"'+(it.canPot?' checked':'')+'>潜在あり</label>'
     + '<label class="chk"><input type="checkbox" data-k="canFl"'+(it.canFl?' checked':'')+'>転生の炎あり</label>'
+    + (sl.ex ? '<label class="chk"><input type="checkbox" data-k="excOk"'+(excEligible(sl,it)?' checked':'')+'>エクセ強化の対象</label>'
+        + (excEligible(sl,it) ? '<label class="chk"><input type="checkbox" data-k="exc"'+(it.exc?' checked':'')+'>エクセ強化済み</label>' : '') : '')
     + '</div>'
     + ((sl.sk || it.skill)
         ? '<div class="dsec"><p class="cap">スキルリング</p>'
@@ -2839,6 +2888,7 @@ function rowDetail(sl, it, cands){
       + '<td class="num gain">'+p2(c.gain)+'<span class="sub">伸び</span></td>'
       + '<td class="num eff">'+p2(c.eff)+'<span class="sub">1Gあたり</span></td></tr></tbody></table>';
   }
+  R += excTable(ch, sl, it);
   R += ringTable(ch, it);
   R += potTable(ch, sl.k, it);
   R += addTable(ch, sl.k, it);
@@ -2877,6 +2927,23 @@ function rowDetail(sl, it, cands){
   let GP = '';
   try{ GP = growthPanel(sl, it, false) + growthPanel(sl, it, true); }catch(e){ GP = ''; }
   return '<div class="dbox">'+L+R+GP+'</div>';
+}
+
+/* エクセプショナル強化の表（ベルト・顔飾り・目飾り）。 */
+function excTable(ch, sl, it){
+  if(!sl.ex) return '';
+  if(!excEligible(sl, it)) return '<div class="dsec"><p class="cap">エクセプショナル強化</p><p class="hint" style="margin-top:0">'
+    + 'この装備は対象外（'+esc(EXC_MAP[sl.k].items.join('・'))+'だけが対象）。対象なら左の「エクセ強化の対象」にチェック。</p></div>';
+  const x = EXC_MAP[sl.k], c = excCand(ch, sl, it);
+  if(!c) return '<div class="dsec"><p class="cap">エクセプショナル強化</p><p class="hint" style="margin-top:0">'
+    + 'この装備は強化済み。</p></div>';
+  return '<div class="dsec"><p class="cap">エクセプショナル強化</p>'
+    + '<div class="scrollx"><table class="mini"><tbody><tr><td>'+esc(c.label)+'<span class="sub">'+esc(c.detail)+'</span></td>'
+    + '<td class="num">'+mel(c.cost)+'<span class="sub">かかるメル</span></td>'
+    + '<td class="num gain">'+p2(c.gain)+'<span class="sub">伸び</span></td>'
+    + '<td class="num eff">'+p2(c.eff||0)+'<span class="sub">1Gあたり</span></td></tr></tbody></table></div>'
+    + '<p class="hint">ハンマー1個で成功100%。値段は設定の「エクセプショナル強化」。'
+    + '最大HP/MP+'+x.hp+'は換算しない。</p></div>';
 }
 
 /* スキルリングの研磨。次の1段と、その先の1段を並べる。 */
@@ -3424,6 +3491,17 @@ function renderSetPrice(){
    +'<b>「使う」を外すと「次の一手」の候補から消える</b>。'
    +'強力・永遠はオークションの在庫次第で、毎回取れる手とは限らないので。'
    +'外しても装備を開いたときの表には残るので、見比べはできる。</p></div>'
+   +'<div class="sect"><h4>エクセプショナル強化</h4>'
+   +'<div class="scrollx"><table class="mini"><thead><tr><th>部位</th><th>増える能力</th>'
+   +'<th class="num">ハンマー1個のメル</th></tr></thead><tbody>'
+   + EXC_DEF.map(x=>'<tr><td>'+esc(x.n)+'</td><td>オールステ+'+x.all+' / 攻撃力・魔力+'+x.atk+'</td>'
+      + '<td class="num"><input type="text" data-excmel="'+x.k+'" value="'+mel(excPrice(x.k))+'" style="width:92px"></td></tr>').join('')
+   +'</tbody></table></div>'
+   +'<p class="hint">ハンマーはオークションの相場で動くので、ここを直接書き換える（初期値は 2026-10-13 時点の申告）。'
+   +'<b>1回目の強化は成功100%・メル0・ハンマー1個</b>なので、費用はハンマーの値段そのもの。'
+   +'対象は今JMSで流通しているベルト・顔飾り・目飾りだけ。'
+   +'上昇値はJMSのハンマーのアイテム情報どおり（韓国wikiの表とも一致）。'
+   +'2回目以降（光輝セット＝傲慢の原罪など。韓国では成功50%・25%、失敗でハンマーとメルが消える）は入れていない。</p></div>'
    +'<div class="sect"><h4>リング研磨（スキルリング）</h4>'
    +'<div class="scrollx"><table class="mini"><thead><tr><th>研磨石</th><th>使い道</th>'
    +'<th class="num">1個のメル</th><th class="num">研磨1回の使用メル</th></tr></thead><tbody>'
@@ -3481,6 +3559,8 @@ function renderSetPrice(){
     p.flameMel[i.dataset.flmel] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-flown]').forEach(i=> i.onchange = ()=>{
     S.settings.flameOwn[i.dataset.flown] = Math.max(0, +i.value||0); save(); redrawKeep(); });
+  $('box-price').querySelectorAll('[data-excmel]').forEach(i=> i.onchange = ()=>{
+    S.settings.price.exc[i.dataset.excmel] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-ringstone]').forEach(i=> i.onchange = ()=>{
     S.settings.price.ring[i.dataset.ringstone] = parseMel(i.value); save(); redrawKeep(); });
   $('box-price').querySelectorAll('[data-ringjob]').forEach(i=> i.onchange = ()=>{
