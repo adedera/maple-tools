@@ -109,6 +109,7 @@ button{font-family:inherit;font-size:13px}
 .pbox details[open] > summary:before{content:'▾ '}
 .pbox details > summary:hover{color:var(--fg)}
 .app{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#swap{padding:6px 18px 22px}
 .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 14px;
   background:var(--panel2);border-bottom:1px solid var(--line)}
 .bar .nm{font-weight:800;font-size:15px}
@@ -276,10 +277,12 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 <div class="cols" id="cols">
   <aside class="sidepanel" id="side"></aside>
   <div class="app">
+    <div class="tools" id="modebar"></div>
     <div class="bar" id="charbar"></div>
     <div class="tools" id="tools"></div>
-    <div class="scrollx"><table class="grid" id="grid"></table></div>
+    <div class="scrollx" id="gridwrap"><table class="grid" id="grid"></table></div>
     <div id="gridfoot"></div>
+    <div id="swap" style="display:none"></div>
   </div>
 </div>
 
@@ -423,17 +426,18 @@ const FOPTS = [
 
 /* 一括登録のプリセット。名前はスクショで確認できたものだけ。 */
 const JOBLINE = ['戦士','魔法使い','弓手','盗賊','海賊'];
+const JOBBIT = {'戦士':1, '魔法使い':2, '弓手':4, '盗賊':8, '海賊':16};   // 素体表の job（必要職業のビット）
 const PRESETS = [
   {id:'eternel', n:'エテルネル一式(帽子・上着・下着)', job:1, items:[
-    ['hat','エテルネル {J} 帽子',250],['top','エテルネル {J} 上着',250],['bottom','エテルネル {J} 下着',250]]},
+    ['hat','エテルネル {J} 帽子',250,0,'eternel'],['top','エテルネル {J} 上着',250,0,'eternel'],['bottom','エテルネル {J} 下着',250,0,'eternel']]},
   {id:'arcane', n:'アーケイン一式(マント・手袋・靴・肩)', job:1, items:[
-    ['cape','アーケイン {J} マント',200],['glove','アーケイン {J} 手袋',200],
-    ['shoes','アーケイン {J} 靴',200],['shoulder','アーケイン {J} 肩',200]]},
+    ['cape','アーケイン {J} マント',200,0,'arcane'],['glove','アーケイン {J} 手袋',200,0,'arcane'],
+    ['shoes','アーケイン {J} 靴',200,0,'arcane'],['shoulder','アーケイン {J} 肩',200,0,'arcane']]},
   {id:'verad', n:'ヴェラッド装飾品(指輪・耳・ペンダント・ベルト)', job:0, items:[
-    ['ring1','ヴェラッド リング(最上級)',200],['ear','ヴェラッド イヤリング(最上級)',200],
-    ['pend1','ヴェラッド 刻印ペンダント(最上級)',200],['belt','ヴェラッド 刻印ベルト(最上級)',200]]},
+    ['ring1','ヴェラッドリング(最上級)',200],['ear','ヴェラッドイヤリング(最上級)',200],
+    ['pend1','ヴェラッド刻印ペンダント(最上級)',200],['belt','ヴェラッド 刻印ベルト(最上級)',200]]},
   {id:'boss', n:'ボス産の装飾品', job:0, items:[
-    ['ring2','凄まじい恐怖',150],['ring3','黎明のガーディアンエンジェルスリング',160],
+    ['ring2','凄まじい恐怖',150],['ring3','黎明のガーディアンエンジェルリング',160],
     ['pend2','苦痛の根源',140],['face','ルージュコントロールマシンマーク',140],
     ['eye','魔力が宿った眼帯',135],['pocket','呪われた魔導書',160],['heart','プラズマハート',200]]},
   {id:'weapon', n:'武器まわり', job:0, items:[
@@ -536,7 +540,8 @@ function uid(){ return Math.random().toString(36).slice(2,9); }
    ============================================================ */
 /* 画面の状態。sort=並び替え, open=開いている枠, budget=予算の入力文字列, set=設定のタブ */
 function defUi(){ return {sort:'eff', showEmpty:false, open:null, budget:'', sideHidden:false, set:'conv',
-           view:'all', pay:'mel',
+           view:'all', pay:'mel', mode:'enh', swapSet:'', swapNow:{}, swapAfter:{},
+           swapCur:'', swapTgt:'', swapStars:'17,18,20,22', swapFlame:null, swapAddSame:true, swapSetOn:true, swapCurBase:{}, swapPrice:{}, swapTab:'set',
                          kinds:{sf:1,pot:1,flame:1}}; }
 let S = load();
 function load(){
@@ -2846,7 +2851,8 @@ function rowDetail(sl, it, cands){
   let L = '<div class="dcard"><h5>この装備の中身<span class="sp">'+sl.n+'</span></h5>'
     + ocrPanel(ch, sl, it)
     + '<div class="grid2">'
-    + '<label class="f" style="grid-column:span 2"><span>装備名</span><input type="text" data-k="name" value="'+esc(it.name)+'"></label>'
+    + '<label class="f" style="grid-column:span 2"><span>装備名</span><input type="text" data-k="name" list="nm-'+sl.k+'" autocomplete="off" value="'+esc(it.name)+'">'
+      + nameHint(sl.k, it) + nameOptions(sl.k) + '</label>'
     + '<label class="f"><span>装備レベル</span><input type="number" data-k="lv" value="'+it.lv+'"></label>'
     + '</div><div class="grid2" style="margin-top:9px">'
     + '<label class="f"><span>★</span><input type="number" data-k="star" value="'+it.star+'"'+(it.sf?'':' disabled')+'></label>'
@@ -3303,6 +3309,35 @@ function flameTable(ch, slotKey, it){
     + '値の式はジェネシス武器の実例（Tier4〜7で+106/+146/+192/+246）と一致を確認済み。</p></div>';
 }
 /* 開いた行の入力を状態につなぐ */
+/* 装備名の入力補助。素体表（換装機能のデータ）から、その枠・職業に合う名前を候補に出す。 */
+function nameSlotKeys(gk){ return Object.keys(SET2GEAR).filter(k=> SET2GEAR[k].indexOf(gk)>=0); }
+function nameOptions(gk){
+  if(!BASE_DATA) return '';
+  const ch = C(), sks = nameSlotKeys(gk), seen = {}, out = [];
+  BASE_DATA.items.forEach(b=>{
+    if(sks.indexOf(b.slot)<0 || !baseFits(b,ch) || seen[b.name]) return;
+    seen[b.name] = 1; out.push('<option value="'+esc(b.name)+'">Lv'+b.lv+'</option>'); });
+  return '<datalist id="nm-'+gk+'">'+out.join('')+'</datalist>';
+}
+function nameMatch(gk, nm){
+  if(!BASE_DATA || !nm) return [];
+  const sks = nameSlotKeys(gk);
+  return BASE_DATA.items.filter(b=> sks.indexOf(b.slot)>=0 && b.name===nm);
+}
+function nameHint(gk, it){
+  if(!BASE_DATA) return '';
+  const m = nameMatch(gk, (it.name||'').trim());
+  return m.length
+    ? '<span class="sub" style="display:block;color:var(--ok)">✓ 素体表にある（Lv'+m[0].lv+'）。換装機能で素体が自動で入る</span>'
+    : '<span class="sub" style="display:block">入力すると候補が出る。候補から選ぶと、換装機能で素体が自動で入る</span>';
+}
+/* 候補どおりの名前なら、装備レベルも表に合わせる（★上限が自動のときだけ追従）。 */
+function nameFill(gk, it){
+  const m = nameMatch(gk, (it.name||'').trim()); if(!m.length) return;
+  const lv = m[0].lv;
+  if(lv && m.every(b=>b.lv===lv) && it.lv!==lv){
+    const auto = it.starMax===starCap(it.lv); it.lv = lv; if(auto) it.starMax = starCap(lv); }
+}
 function bindRow(b, slotKey){
   const ch = C(), it = ch.gear[slotKey];
   if(!it) return;
@@ -3319,6 +3354,7 @@ function bindRow(b, slotKey){
     else if(k==='base') it[k] = parseMel(i.value);
     else if(i.type==='number') it[k] = +i.value||0;
     else it[k] = i.value;
+    if(k==='name') nameFill(slotKey, it);
     if(autoCap) it.starMax = starCap(it.lv);
     // スキルリングはスタフォ・潜在・転生の炎が付かない。付けたら、その3つは外す。
     if(k==='skill' && it.skill){ it.sf = false; it.canPot = false; it.canFl = false; }
@@ -3708,8 +3744,11 @@ function openPreset(){
   $('dlg2-b').querySelectorAll('[data-pre]').forEach(x=> x.onclick = ()=>{
     const p = PRESETS.find(q=>q.id===x.dataset.pre), ch = C(), j = $('pjob').value;
     let n=0;
-    p.items.forEach(([sl,nm,lv,cap])=>{ if(ch.gear[sl]) return;
-      ch.gear[sl] = newItem(sl, nm.replace('{J}', j), lv, cap); n++; });
+    p.items.forEach(([sl,nm,lv,cap,setId])=>{ if(ch.gear[sl]) return;
+      // 素体表に実名がある装備（職業別の防具）は、その名前とレベルで入れる
+      const bit = JOBBIT[j] || 0, sks = nameSlotKeys(sl);
+      const b = (setId && BASE_DATA) ? BASE_DATA.items.find(x=> x.set===setId && sks.indexOf(x.slot)>=0 && (!x.job || (x.job & bit))) : null;
+      ch.gear[sl] = newItem(sl, b ? b.name : nm.replace('{J}', j), b ? b.lv : lv, cap); n++; });
     save(); renderAll(); x.textContent = n ? ('追加 '+n+'件') : '全部埋まってる'; });
   $('dlg2').showModal();
 }
@@ -3744,7 +3783,470 @@ function renderChars(){
     '<option value="'+c.id+'"'+(c.id===S.active?' selected':'')+'>'+esc(c.name)+'</option>').join('');
   $('chardel').disabled = S.chars.length<2;
 }
-function renderAll(){ renderChars(); renderBar(); renderTools(); renderGrid(); renderSide(); }
+/* ============================================================
+   換装（上位装備への乗り換え）
+   段階1: セット効果の増減。データは tools/set_data.json（ビルドで差し込む）。
+   セットの各段階は「その段階で追加される分」で、累積ではない（画像の表記どおり）。
+   ============================================================ */
+const SET_DATA = {"_verify":"2026-10-13 韓国namu wikiの各セット個別ページ（firecrawl stealthのAI要約経由）と突き合わせ。漆黒・黎明・光輝・エテルネル・アーケインシェード・ボスアクセは段階ごとの効果と構成部位が画像と一致。ヴェラッドは韓国版に存在しないので突き合わせ不可（画像のみが根拠）。ルートアビスは未突き合わせ。光輝は韓国版は6セット（目飾り『굶주리는 핏빛 원혼』、6セットでクリダメ+7.5%）だがJMSは未実装で5セットまで（ユーザー回答 2026-10-13）。","_note":"セット効果。出典=セット効果/*.png（JMSのツールチップのスクショを書き起こし）。各段階の効果は『その段階で追加される分』で、累積ではない（画像の表記どおり）。キー: all=全ステータス, atk=攻撃力/魔力, boss=ボスダメ%, ied=防御率無視%, cd=クリダメ%, hp=最大HP(絶対値), hpp=最大HP/MP%, def=防御力。ステータス換算に使うのは all/atk/boss/ied/cd。hp/hpp/def は換算しない。","sets":[{"id":"kurokuro","n":"漆黒のボスセット","max":10,"src":"漆黒のボスセット.png","slots":[{"slot":"face","items":["ルージュコントロールマシンマーク"]},{"slot":"eye","items":["魔力が宿った眼帯"]},{"slot":"heart","items":["コンプリートアンダーコントロール","ブラックハート"],"_alt":"機械心臓は2種のうち1つ（同じ枠の選択式）。韓国wikiで確認済み"},{"slot":"pend","items":["苦痛の根源"]},{"slot":"badge","items":["創世のバッジ"]},{"slot":"ring","items":["凄まじい恐怖"]},{"slot":"pocket","items":["呪われた魔導書"],"_alt":"「のうち1つ」"},{"slot":"emblem","items":["ミトラの怒り"],"_alt":"「のうち1つ」"},{"slot":"belt","items":["夢幻のベルト"]},{"slot":"earring","items":["コマンダーフォースイヤリング"]}],"tiers":{"2":{"all":10,"hp":250,"atk":10,"boss":10},"3":{"all":10,"hp":250,"atk":10,"def":250,"ied":10},"4":{"all":15,"hp":375,"atk":15,"cd":5},"5":{"all":15,"hp":375,"atk":15,"boss":10},"6":{"all":15,"hp":375,"atk":15,"ied":10},"7":{"all":15,"hp":375,"atk":15,"cd":5},"8":{"all":15,"hp":375,"atk":15,"boss":10},"9":{"all":15,"hp":375,"atk":15,"cd":5},"10":{"all":20,"hp":500,"atk":20,"boss":10}}},{"id":"reimei","n":"黎明のボスセット","max":4,"src":"黎明のボスセット.png","slots":[{"slot":"ring","items":["黎明のガーディアンエンジェルリング"]},{"slot":"face","items":["トワイライトマーク"]},{"slot":"earring","items":["エステライヤリング"]},{"slot":"pend","items":["デイブレイクペンダント"]}],"tiers":{"2":{"all":10,"hp":250,"atk":10,"boss":10},"3":{"all":10,"hp":250,"atk":10},"4":{"all":10,"hp":250,"atk":10,"def":100,"ied":10}}},{"id":"koki","n":"光輝のボスセット","max":5,"src":"光輝のボスセット.png","slots":[{"slot":"ring","items":["根源の囁き"]},{"slot":"pend","items":["死の誓い"]},{"slot":"medal","items":["不滅の遺産"]},{"slot":"ring","items":["恍惚の悪夢"]},{"slot":"face","items":["傲慢の原罪"]}],"tiers":{"2":{"all":20,"hp":500,"atk":20,"boss":15},"3":{"all":20,"hp":500,"atk":20,"ied":15},"4":{"all":20,"hp":500,"atk":20,"cd":5},"5":{"all":20,"hp":500,"atk":20,"boss":15}}},{"id":"eternel","n":"エテルネルセット","max":8,"jobGroup":true,"src":"エテルネルセット.png","_alt":"画像は戦士系。防具の名前は職業系統で変わる。武器は『ジェネシスまたはデスティニー武器のうち1つ』（名前が途切れている）","slots":[{"slot":"hat","items":["エテルネルナイトヘルム"]},{"slot":"top","items":["エテルネルナイトアーマー"]},{"slot":"bottom","items":["エテルネルナイトパンツ"]},{"slot":"weapon","items":["ジェネシス武器","デスティニー武器"]},{"slot":"shoulder","items":["エテルネルナイトショルダー"]},{"slot":"glove","items":["エテルネルナイトグローブ"]},{"slot":"shoes","items":["エテルネルナイトシューズ"]},{"slot":"cape","items":["エテルネルナイトケープ"]}],"tiers":{"2":{"hp":2500,"atk":40,"boss":10},"3":{"all":50,"atk":40,"def":600,"boss":10},"4":{"hpp":15,"atk":40,"boss":10},"5":{"atk":40,"ied":20},"6":{"atk":40,"boss":15},"7":{"all":50,"hp":2500,"atk":40,"boss":15},"8":{"atk":40,"boss":15}}},{"id":"arcane","n":"アーケインシェードセット","max":7,"jobGroup":true,"src":"アーケインシェードセット.png","_alt":"画像は戦士系。武器はジェネシスチューナー","slots":[{"slot":"shoes","items":["アーケインシェードナイトシューズ"]},{"slot":"glove","items":["アーケインシェードナイトグローブ"]},{"slot":"cape","items":["アーケインシェードナイトケープ"]},{"slot":"shoulder","items":["アーケインシェードナイトショルダー"]},{"slot":"weapon","items":["ジェネシス武器"]},{"slot":"hat","items":["アーケインシェードナイトハット"]},{"slot":"top","items":["アーケインシェードナイトスーツ"],"_alt":"服(全身)。1ピースとして数える（韓国wikiで7ピース構成、画像も7）。服上・服下の2枠ぶんを占める扱いは別途アプリ側で処理"}],"tiers":{"2":{"atk":30,"boss":10},"3":{"atk":30,"def":400,"ied":10},"4":{"all":50,"atk":35,"boss":10},"5":{"hp":2000,"atk":40,"boss":10},"6":{"hpp":30,"atk":30},"7":{"atk":30,"ied":10}}},{"id":"vellad","n":"ヴェラッドセット(最上級)","max":4,"src":"ヴェラッドセット.png","jmsOnly":true,"_alt":"JMS固有で韓国版に存在しない。韓国wikiでの裏取り不可。画像のみが根拠","slots":[{"slot":"earring","items":["ヴェラッドイヤリング(最上級)"]},{"slot":"pend","items":["ヴェラッド刻印ペンダント(最上級)"]},{"slot":"belt","items":["ヴェラッド 刻印ベルト(最上級)"]},{"slot":"ring","items":["ヴェラッドリング(最上級)"]}],"tiers":{"2":{"all":20,"hp":1500},"3":{"hpp":13,"atk":35},"4":{"boss":30,"ied":30}}},{"id":"bossacc","n":"ボスアクセサリセット","max":9,"src":"ボスアクセサリセット.png","_alt":"3・5・7・9セットだけ効果がある。同名の部位が複数あるのは選択式（顔1・目3・イヤリング2・指輪3・ペンダント4・ベルト2・肩1・ポケット2・バッジ1の計9部位）","slots":[{"slot":"face","items":["凝縮された力の結晶石"]},{"slot":"eye","items":["アクアティックレター目飾り","ブラックビーンマーク","ビシャスプラントマーク"]},{"slot":"earring","items":["地獄の炎","デアセデュースイヤリング"]},{"slot":"ring","items":["シルバーブロッサムリング","高貴なイピアのリング","ガーディアンエンジェルリング"]},{"slot":"pend","items":["ホーンテイルのネックレス","カオスホーンテイルのネックレス","メーカーネイターペンダント","ドミネーターペンダント"]},{"slot":"belt","items":["ゴールデンクローバーベルト","怒ったジャクムのベルト"]},{"slot":"shoulder","items":["ロイヤルブラックメタルショルダー"]},{"slot":"pocket","items":["ピンクの聖杯","永遠の命の石"]},{"slot":"badge","items":["クリスタルウェントゥスバッジ"]}],"tiers":{"3":{"all":10,"hpp":5,"atk":5},"5":{"all":10,"hpp":5,"atk":5},"7":{"all":10,"atk":10,"def":80,"ied":10},"9":{"all":15,"atk":10,"def":100,"boss":10}}},{"id":"rootabyss","n":"ルートアビスセット","max":4,"jobGroup":true,"src":"Maple_261013_161302.png","_alt":"画像は戦士系。旧世代のため参考。2セットのSTR/DEX+20はクラスごとに主ステ・サブステが違う。武器は『ファフニール武器のうち1つ』","slots":[{"slot":"hat","items":["ハイネスウォーリアヘルム"]},{"slot":"top","items":["イーグルアイウォーリアアーマー"]},{"slot":"bottom","items":["トリックスターウォーリアパンツ"]},{"slot":"weapon","items":["ファフニール武器"]}],"tiers":{"2":{"main":20,"sub":20,"hp":1000},"3":{"hpp":10,"atkFlat":50},"4":{"boss":30}}}]};
+const SET_LBL = {all:'全ステ', atk:'攻撃力/魔力', boss:'ボスダメ', ied:'防御率無視', cd:'クリダメ',
+                 hp:'最大HP', hpp:'最大HP/MP', def:'防御力', main:'主ステ', sub:'サブステ', atkFlat:'攻撃力'};
+const SET_PCT = {boss:1, ied:1, cd:1, hpp:1};
+const SET_SLOT = {hat:'帽子', top:'服上', bottom:'服下', shoes:'靴', glove:'手袋', cape:'マント', shoulder:'肩飾り',
+                  weapon:'武器', face:'顔飾り', eye:'目飾り', earring:'イヤリング', pend:'ペンダント', ring:'指輪',
+                  belt:'ベルト', pocket:'ポケット', badge:'バッジ', medal:'勲章', emblem:'エンブレム', heart:'機械心臓'};
+const SET_CONV = {all:1, atk:1, boss:1, ied:1, cd:1, main:1, sub:1, atkFlat:1};
+/* 効果1つぶんを最終ダメ%に直す。全ステは主ステ＋サブステの両方に乗る。 */
+function setConvVal(e, conv){
+  const c = conv || {};
+  return ((c.mainStat||0)+(c.subStat||0))*(e.all||0) + (c.mainStat||0)*(e.main||0) + (c.subStat||0)*(e.sub||0)
+       + (c.atk||0)*((e.atk||0)+(e.atkFlat||0)) + (c.bossDmg||0)*(e.boss||0)
+       + (c.ignoreDef||0)*(e.ied||0) + (c.critDmg||0)*(e.cd||0);
+}
+function setEffText(e){
+  return Object.keys(e).map(k=>{
+    const t = (SET_LBL[k]||k)+'+'+e[k]+(SET_PCT[k]?'%':'');
+    return SET_CONV[k] ? t : '<span style="color:var(--faint)">'+t+'</span>';
+  }).join('　');
+}
+/* 今の装備の名前が、そのセットの部位名を含むか。同じ装備を2回数えない。 */
+/* 装備名の照合。空白は無視。 */
+function setNorm(s){ return String(s||'').replace(/[\s\u3000]/g, ''); }
+/* 今の装備の名前が、そのセットの部位に当たるか。
+   ・装備の枠が合うこと（指輪の部位には指輪の枠だけ）。部分一致だと
+     「黎明のガーディアンエンジェルリング」がボスアクセの「ガーディアンエンジェルリング」にも当たる。
+   ・名前は、セットの名前か、素体表にある同じセット・部位の名前と一致（職業違いの防具名もこれで拾う）。
+   ・「ジェネシス武器」「デスティニー武器」のような総称は、その前置きで始まる武器名（ジェネシスチューナーなど）。
+   ・「呪われた魔導書」「ミトラの怒り」は、職業別の名前が後ろに付くので前方一致。 */
+const SET_PREFIX_OK = ['呪われた魔導書', 'ミトラの怒り'];
+function setNowAuto(set){
+  const ch = C(), used = {};
+  return set.slots.map(s=>{
+    const names = s.items.map(setNorm);
+    if(BASE_DATA) BASE_DATA.items.forEach(b=>{ if(b.set===set.id && b.slot===s.slot) names.push(setNorm(b.name)); });
+    const gens = s.items.filter(n=> /武器$/.test(n)).map(n=> setNorm(n.replace(/武器$/, '')));
+    const pre = s.items.filter(n=> SET_PREFIX_OK.indexOf(n)>=0).map(setNorm);
+    const gks = SET2GEAR[s.slot] || [];
+    for(let i=0;i<gks.length;i++){
+      const gk = gks[i], it = ch.gear[gk];
+      if(used[gk] || !it || !it.name) continue;
+      const nm = setNorm(it.name);
+      if(names.indexOf(nm)>=0 || gens.some(g=> g && nm.indexOf(g)===0) || pre.some(p=> nm.indexOf(p)===0)){
+        used[gk] = true; return true; }
+    }
+    return false;
+  });
+}
+function renderMode(){
+  const m = S.ui.mode==='swap' ? 'swap' : 'enh';
+  $('modebar').innerHTML = '<div class="seg inline">'
+    + [['enh','強化'],['swap','換装']].map(([k,n])=>'<button data-mode="'+k+'"'+(m===k?' aria-selected="true"':'')+'>'+n+'</button>').join('')
+    + '</div><span class="hint" style="margin:0 0 0 10px">'
+    + (m==='swap' ? '上位装備に替えたときのセット効果の増減を見る' : '今の装備をどう強化するかを見る') + '</span>';
+  $('modebar').querySelectorAll('[data-mode]').forEach(b=> b.onclick = ()=>{
+    S.ui.mode = b.dataset.mode; save(); renderAll(); });
+}
+function renderSwap(){
+  const box = $('swap'), ch = C(); if(!box) return;
+  const sets = (SET_DATA && SET_DATA.sets) || [];
+  if(!sets.length){ box.innerHTML = '<p class="hint">セットのデータがありません。build_gear.py でビルドし直す。</p>'; return; }
+  const sid = sets.some(s=>s.id===S.ui.swapSet) ? S.ui.swapSet : sets[0].id;
+  const set = sets.find(s=>s.id===sid);
+  const st = (S.ui.swapNow = S.ui.swapNow||{}), sa = (S.ui.swapAfter = S.ui.swapAfter||{});
+  const auto = setNowAuto(set);
+  // 「今」は装備の登録状況が先。登録から分からないものだけ、手でチェックした分を足す。
+  const now = set.slots.map((s,i)=> auto[i] || !!(st[sid] && !Array.isArray(st[sid]) && st[sid][i]));
+  const aft = set.slots.map((s,i)=> (sa[sid] && !Array.isArray(sa[sid]) && sa[sid][i]!==undefined) ? !!sa[sid][i] : now[i]);
+  const nb = now.filter(Boolean).length, na = aft.filter(Boolean).length;
+
+  const tiers = Object.keys(set.tiers).map(Number).sort((a,b)=>a-b);
+  let total = 0, tb = '';
+  tiers.forEach(t=>{
+    const e = set.tiers[t], v = setConvVal(e, ch.conv);
+    const on0 = t<=nb, on1 = t<=na, d = (on1?v:0)-(on0?v:0);
+    total += d;
+    tb += '<tr'+(on0!==on1?' style="background:var(--'+(on1?'ok':'warn')+'-bg,transparent)"':'')+'>'
+      + '<td class="num">'+t+'セット</td><td>'+setEffText(e)+'</td>'
+      + '<td>'+(on0?'●':'')+'</td><td>'+(on1?'●':'')+'</td>'
+      + '<td class="num">'+(on0!==on1 ? p2(d) : '')+'</td></tr>';
+  });
+  const nowV = tiers.reduce((a,t)=> a + (t<=nb ? setConvVal(set.tiers[t], ch.conv) : 0), 0);
+  const aftV = tiers.reduce((a,t)=> a + (t<=na ? setConvVal(set.tiers[t], ch.conv) : 0), 0);
+
+  const tab = ['set','need','cost'].indexOf(S.ui.swapTab)>=0 ? S.ui.swapTab : 'set';
+  box.innerHTML =
+    '<div class="seg inline" id="swtabs" style="margin:4px 0 14px">'
+    + [['set','① セット効果'],['need','② 必要な強化'],['cost','③ 総メル']].map(([k,n])=>
+        '<button data-swtab="'+k+'"'+(tab===k?' aria-selected="true"':'')+'>'+n+'</button>').join('')
+    + '</div>'
+    + '<div id="swp-set"'+(tab==='set'?'':' style="display:none"')+'>'
+    + '<div class="sect"><h4>換装するセット</h4>'
+   +'<div class="seg inline" id="swsets" style="flex-wrap:wrap;margin:0 0 10px">'
+   + sets.map(s=>{ const n = setNowAuto(s).filter(Boolean).length;
+       return '<button data-swset="'+s.id+'"'+(s.id===sid?' aria-selected="true"':'')+'>'+esc(s.n)
+         + (n ? ' <span style="opacity:.75;font-weight:400">'+n+'/'+s.max+'</span>' : '')+'</button>'; }).join('')
+   +'</div>'
+   +'<p class="hint" style="margin-top:0">登録済みの装備の名前から「今着けている」を自動で入れる（名前が素体表と合うもの）。'
+   +'タブの数字は、いま着けている数。合わないときは、装備名を候補から選び直すか、手でチェックする。</p>'
+   + (set.jmsOnly ? '<p class="hint">日本版のみのセット。韓国版には無いので、韓国wikiでの裏取りはできていない（画像が根拠）。</p>' : '')
+   + (set.jobGroup ? '<p class="hint">防具名は職業系統で変わる。装備名の自動判定が合わないときは「今」を手で直す。</p>' : '')
+   +'<table class="grid" style="margin-top:6px"><thead><tr><th>部位</th><th>装備（複数あるものは1つ）</th>'
+   +'<th>今着けている</th><th>換装後に着ける</th></tr></thead><tbody>'
+   + set.slots.map((s,i)=>'<tr><td>'+esc(SET_SLOT[s.slot]||s.slot)+'</td><td>'+esc(s.items.join(' / '))+'</td>'
+      +'<td><input type="checkbox" data-sw="now" data-i="'+i+'"'+(now[i]?' checked':'')+(auto[i]?' disabled':'')+'>'
+      + (auto[i] ? ' <span class="sub" style="display:inline;color:var(--ok)">装備から</span>' : '')+'</td>'
+      +'<td><input type="checkbox" data-sw="aft" data-i="'+i+'"'+(aft[i]?' checked':'')+'></td></tr>').join('')
+   +'</tbody></table></div>'
+   +'<div class="sect"><h4>セット効果の増減：'+nb+' / '+set.max+' → '+na+' / '+set.max+'</h4>'
+   +'<table class="grid"><thead><tr><th class="num">段階</th><th>追加される効果</th><th>今</th><th>換装後</th>'
+   +'<th class="num">増減（最終ダメ換算）</th></tr></thead><tbody>'+tb
+   +'<tr><td colspan="4"><b>セット効果の合計</b>　今 '+p2(nowV)+' → 換装後 '+p2(aftV)+'</td>'
+   +'<td class="num"><b>'+p2(total)+'</b></td></tr></tbody></table>'
+   +'<p class="hint">薄い灰色の効果（HP・防御力など）は換算していない。全ステは主ステ・サブステの両方に換算。'
+   +'セット効果は段階ごとの追加分。ボスアクセサリセットは3・5・7・9セットだけ効果がある。'
+   +'数値は画像の書き起こしで、韓国namu wikiの各セットのページと突き合わせ済み（ヴェラッド・ルートアビスを除く）。</p></div>'
+   +'</div>'
+   +'<div id="swp-need"'+(tab==='need'?'':' style="display:none"')+'><div id="swneed"></div></div>'
+   +'<div id="swp-cost"'+(tab==='cost'?'':' style="display:none"')+'><div id="swcost"></div></div>';
+  box.querySelectorAll('[data-swtab]').forEach(b=> b.onclick = ()=>{
+    S.ui.swapTab = b.dataset.swtab; save(); renderSwap(); });
+
+  box.querySelectorAll('[data-swset]').forEach(b=> b.onclick = ()=>{
+    S.ui.swapSet = b.dataset.swset; save(); renderSwap(); });
+  box.querySelectorAll('[data-sw]').forEach(c=> c.onchange = ()=>{
+    // 手で変えた欄だけ持つ（それ以外は、今は装備の登録状況・換装後は今に従う）
+    const m = c.dataset.sw==='now' ? st : sa;
+    if(!m[sid] || Array.isArray(m[sid])) m[sid] = {};
+    m[sid][+c.dataset.i] = c.checked;
+    save(); renderSwap(); });
+  renderNeed(set, total);
+}
+
+/* ============================================================
+   段階3: 今の装備に並ぶには、★ごとに潜在・転生がどこまで要るか
+   「今の装備の総合値」と「換装先の素体＋セット効果の増減＋★」の差が、潜在・アディ・転生で出す分。
+   すべて最終ダメ換算（ch.conv）。スタフォの★ごとの上昇は設定の表（未確認の目安）をそのまま使う。
+   ============================================================ */
+const BASE_DATA = {"version":"444","items":[{"id":1012632,"name":"ルージュコントロールマシンマーク","set":"kurokuro","slot":"face","lv":160,"job":0,"tuc":6,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":10,"MAD":10,"PDD":200,"MDD":200},"bdR":0,"imdR":0},{"id":1022278,"name":"魔力が宿った眼帯","set":"kurokuro","slot":"eye","lv":160,"job":0,"tuc":4,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":3,"MAD":3,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1672095,"name":"コンプリートアンダーコントロール","set":"kurokuro","slot":"heart","lv":200,"job":0,"tuc":10,"st":{"STR":25,"DEX":25,"INT":25,"LUK":25,"PAD":15,"MAD":15,"MHP":1250},"bdR":0,"imdR":30},{"id":1672097,"name":"コンプリートアンダーコントロール","set":"kurokuro","slot":"heart","lv":200,"job":0,"tuc":9,"st":{"STR":25,"DEX":25,"INT":25,"LUK":25,"PAD":15,"MAD":15,"MHP":1250},"bdR":0,"imdR":30},{"id":1672076,"name":"ブラックハート","set":"kurokuro","slot":"heart","lv":120,"job":0,"tuc":11,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"MHP":100},"bdR":0,"imdR":0},{"id":1672082,"name":"ブラックハート","set":"kurokuro","slot":"heart","lv":120,"job":0,"tuc":11,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":77,"MAD":77,"MHP":100},"bdR":0,"imdR":0},{"id":1122430,"name":"苦痛の根源","set":"kurokuro","slot":"pend","lv":160,"job":0,"tuc":6,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":3,"MAD":3,"PDD":200,"MDD":200},"bdR":0,"imdR":0},{"id":1182285,"name":"創世のバッジ","set":"kurokuro","slot":"badge","lv":200,"job":0,"tuc":0,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":10,"MAD":10,"ACC":50,"EVA":50,"Speed":10,"Jump":10},"bdR":0,"imdR":0},{"id":1182308,"name":"創世のバッジ","set":"kurokuro","slot":"badge","lv":200,"job":0,"tuc":0,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":10,"MAD":10,"ACC":50,"EVA":50,"Speed":10,"Jump":10},"bdR":0,"imdR":0},{"id":1113306,"name":"凄まじい恐怖","set":"kurokuro","slot":"ring","lv":200,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":4,"MAD":4,"MHP":250,"MMP":250},"bdR":0,"imdR":0},{"id":1162080,"name":"呪われた魔導書(赤)","set":"kurokuro","slot":"pocket","lv":160,"job":0,"tuc":0,"st":{"STR":20,"DEX":10,"INT":10,"LUK":10,"PAD":10,"MAD":10,"MHP":100,"MMP":100},"bdR":0,"imdR":0},{"id":1162081,"name":"呪われた魔導書(青)","set":"kurokuro","slot":"pocket","lv":160,"job":0,"tuc":0,"st":{"STR":10,"DEX":10,"INT":20,"LUK":10,"PAD":10,"MAD":10,"MHP":100,"MMP":100},"bdR":0,"imdR":0},{"id":1162082,"name":"呪われた魔導書(緑)","set":"kurokuro","slot":"pocket","lv":160,"job":0,"tuc":0,"st":{"STR":10,"DEX":20,"INT":10,"LUK":10,"PAD":10,"MAD":10,"MHP":100,"MMP":100},"bdR":0,"imdR":0},{"id":1162083,"name":"呪われた魔導書(黄)","set":"kurokuro","slot":"pocket","lv":160,"job":0,"tuc":0,"st":{"STR":10,"DEX":10,"INT":10,"LUK":20,"PAD":10,"MAD":10,"MHP":100,"MMP":100},"bdR":0,"imdR":0},{"id":1190555,"name":"ミトラの怒り：戦士","set":"kurokuro","slot":"emblem","lv":200,"job":1,"tuc":0,"st":{"STR":40,"DEX":40,"PAD":5,"MAD":5,"MHP":700},"bdR":0,"imdR":0},{"id":1190556,"name":"ミトラの怒り：弓使い","set":"kurokuro","slot":"emblem","lv":200,"job":4,"tuc":0,"st":{"STR":40,"DEX":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190557,"name":"ミトラの怒り：魔法使い","set":"kurokuro","slot":"emblem","lv":200,"job":2,"tuc":0,"st":{"INT":40,"LUK":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190558,"name":"ミトラの怒り：盗賊","set":"kurokuro","slot":"emblem","lv":200,"job":8,"tuc":0,"st":{"DEX":40,"LUK":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190559,"name":"ミトラの怒り：海賊","set":"kurokuro","slot":"emblem","lv":200,"job":16,"tuc":0,"st":{"STR":40,"DEX":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190573,"name":"ミトラの怒り：戦士","set":"kurokuro","slot":"emblem","lv":200,"job":1,"tuc":0,"st":{"STR":40,"DEX":40,"PAD":5,"MAD":5,"MHP":700},"bdR":0,"imdR":0},{"id":1190574,"name":"ミトラの怒り：弓使い","set":"kurokuro","slot":"emblem","lv":200,"job":4,"tuc":0,"st":{"STR":40,"DEX":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190575,"name":"ミトラの怒り：魔法使い","set":"kurokuro","slot":"emblem","lv":200,"job":2,"tuc":0,"st":{"INT":40,"LUK":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190576,"name":"ミトラの怒り：盗賊","set":"kurokuro","slot":"emblem","lv":200,"job":8,"tuc":0,"st":{"DEX":40,"LUK":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1190577,"name":"ミトラの怒り：海賊","set":"kurokuro","slot":"emblem","lv":200,"job":16,"tuc":0,"st":{"STR":40,"DEX":40,"PAD":5,"MAD":5},"bdR":0,"imdR":0},{"id":1132308,"name":"夢幻のベルト","set":"kurokuro","slot":"belt","lv":200,"job":0,"tuc":4,"st":{"STR":50,"DEX":50,"INT":50,"LUK":50,"PAD":6,"MAD":6,"PDD":150,"MDD":150,"MHP":150,"MMP":150},"bdR":0,"imdR":0},{"id":1032316,"name":"コマンダーフォースイヤリング","set":"kurokuro","slot":"earring","lv":200,"job":0,"tuc":7,"st":{"STR":7,"DEX":7,"INT":7,"LUK":7,"PAD":5,"MAD":5,"PDD":100,"MDD":100,"MHP":500,"MMP":500},"bdR":0,"imdR":0},{"id":1113316,"name":"黎明のガーディアンエンジェルリング","set":"reimei","slot":"ring","lv":160,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"MHP":200,"MMP":200},"bdR":0,"imdR":0},{"id":1012757,"name":"トワイライトマーク","set":"reimei","slot":"face","lv":140,"job":0,"tuc":4,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":5,"MAD":5,"PDD":100,"MDD":1200},"bdR":0,"imdR":0},{"id":1032330,"name":"エステライヤリング","set":"reimei","slot":"earring","lv":160,"job":0,"tuc":7,"st":{"STR":7,"DEX":7,"INT":7,"LUK":7,"PAD":2,"MAD":2,"PDD":100,"MDD":100,"MHP":300,"MMP":300},"bdR":0,"imdR":0},{"id":1122443,"name":"デイブレイクペンダント","set":"reimei","slot":"pend","lv":140,"job":0,"tuc":6,"st":{"STR":8,"DEX":8,"INT":8,"LUK":8,"PAD":2,"MAD":2,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1113341,"name":"根源の囁き","set":"koki","slot":"ring","lv":250,"job":0,"tuc":4,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":5,"MAD":5,"MHP":500,"MMP":500},"bdR":0,"imdR":0},{"id":1122447,"name":"死の誓い","set":"koki","slot":"pend","lv":250,"job":0,"tuc":7,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":5,"MAD":5,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1143471,"name":"不滅の遺産","set":"koki","slot":"medal","lv":250,"job":0,"tuc":0,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":10,"MAD":10,"MHP":500,"MMP":500},"bdR":10,"imdR":0},{"id":1113360,"name":"恍惚の悪夢","set":"koki","slot":"ring","lv":250,"job":0,"tuc":4,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":5,"MAD":5,"MHP":500,"MMP":500},"bdR":0,"imdR":0},{"id":1012911,"name":"傲慢の原罪","set":"koki","slot":"face","lv":250,"job":0,"tuc":7,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":15,"MAD":15,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1005980,"name":"エテルネルナイトヘルム","set":"eternel","slot":"hat","lv":250,"job":1,"tuc":12,"st":{"STR":80,"DEX":80,"PAD":10,"PDD":750},"bdR":0,"imdR":15},{"id":1042433,"name":"エテルネルナイトアーマー","set":"eternel","slot":"top","lv":250,"job":1,"tuc":8,"st":{"STR":50,"DEX":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1062285,"name":"エテルネルナイトパンツ","set":"eternel","slot":"bottom","lv":250,"job":1,"tuc":8,"st":{"STR":50,"DEX":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1152212,"name":"エテルネルナイトショルダー","set":"eternel","slot":"shoulder","lv":250,"job":1,"tuc":2,"st":{"STR":51,"DEX":51,"INT":51,"LUK":51,"PAD":28,"MAD":28,"PDD":450},"bdR":0,"imdR":0},{"id":1082760,"name":"エテルネルナイトグローブ","set":"eternel","slot":"glove","lv":250,"job":1,"tuc":8,"st":{"STR":55,"DEX":55,"PAD":12,"PDD":325,"MDD":250},"bdR":0,"imdR":0},{"id":1073629,"name":"エテルネルナイトシューズ","set":"eternel","slot":"shoes","lv":250,"job":1,"tuc":8,"st":{"STR":55,"DEX":55,"PAD":12,"PDD":325,"MDD":325,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1103433,"name":"エテルネルナイトケープ","set":"eternel","slot":"cape","lv":250,"job":1,"tuc":8,"st":{"STR":50,"DEX":50,"INT":50,"LUK":50,"PAD":9,"MAD":9,"PDD":600,"MDD":450},"bdR":0,"imdR":0},{"id":1152213,"name":"エテルネルメイジショルダー","set":"eternel","slot":"shoulder","lv":250,"job":2,"tuc":2,"st":{"STR":51,"DEX":51,"INT":51,"LUK":51,"PAD":28,"MAD":28,"PDD":450},"bdR":0,"imdR":0},{"id":1152214,"name":"エテルネルアーチャーショルダー","set":"eternel","slot":"shoulder","lv":250,"job":4,"tuc":2,"st":{"STR":51,"DEX":51,"INT":51,"LUK":51,"PAD":28,"MAD":28,"PDD":450},"bdR":0,"imdR":0},{"id":1152215,"name":"エテルネルシーフショルダー","set":"eternel","slot":"shoulder","lv":250,"job":8,"tuc":2,"st":{"STR":51,"DEX":51,"INT":51,"LUK":51,"PAD":28,"MAD":28,"PDD":450},"bdR":0,"imdR":0},{"id":1152216,"name":"エテルネルパイレーツショルダー","set":"eternel","slot":"shoulder","lv":250,"job":16,"tuc":2,"st":{"STR":51,"DEX":51,"INT":51,"LUK":51,"PAD":28,"MAD":28,"PDD":450},"bdR":0,"imdR":0},{"id":1005981,"name":"エテルネルメイジハット","set":"eternel","slot":"hat","lv":250,"job":2,"tuc":12,"st":{"INT":80,"LUK":80,"MAD":10,"PDD":750},"bdR":0,"imdR":15},{"id":1005982,"name":"エテルネルアーチャーハット","set":"eternel","slot":"hat","lv":250,"job":4,"tuc":12,"st":{"STR":80,"DEX":80,"PAD":10,"PDD":750},"bdR":0,"imdR":15},{"id":1005983,"name":"エテルネルシーフバンダナ","set":"eternel","slot":"hat","lv":250,"job":8,"tuc":12,"st":{"DEX":80,"LUK":80,"PAD":10,"PDD":750},"bdR":0,"imdR":15},{"id":1005984,"name":"エテルネルパイレーツハット","set":"eternel","slot":"hat","lv":250,"job":16,"tuc":12,"st":{"STR":80,"DEX":80,"PAD":10,"PDD":750},"bdR":0,"imdR":15},{"id":1103434,"name":"エテルネルメイジケープ","set":"eternel","slot":"cape","lv":250,"job":2,"tuc":8,"st":{"STR":50,"DEX":50,"INT":50,"LUK":50,"PAD":9,"MAD":9,"PDD":600,"MDD":450},"bdR":0,"imdR":0},{"id":1103435,"name":"エテルネルアーチャーケープ","set":"eternel","slot":"cape","lv":250,"job":4,"tuc":8,"st":{"STR":50,"DEX":50,"INT":50,"LUK":50,"PAD":9,"MAD":9,"PDD":600,"MDD":450},"bdR":0,"imdR":0},{"id":1103436,"name":"エテルネルシーフケープ","set":"eternel","slot":"cape","lv":250,"job":8,"tuc":8,"st":{"STR":50,"DEX":50,"INT":50,"LUK":50,"PAD":9,"MAD":9,"PDD":600,"MDD":450},"bdR":0,"imdR":0},{"id":1103437,"name":"エテルネルパイレーツケープ","set":"eternel","slot":"cape","lv":250,"job":16,"tuc":8,"st":{"STR":50,"DEX":50,"INT":50,"LUK":50,"PAD":9,"MAD":9,"PDD":600,"MDD":450},"bdR":0,"imdR":0},{"id":1042434,"name":"エテルネルメイジローブ","set":"eternel","slot":"top","lv":250,"job":2,"tuc":8,"st":{"INT":50,"LUK":50,"MAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1042435,"name":"エテルネルアーチャーフード","set":"eternel","slot":"top","lv":250,"job":4,"tuc":8,"st":{"STR":50,"DEX":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1042436,"name":"エテルネルシーフシャツ","set":"eternel","slot":"top","lv":250,"job":8,"tuc":8,"st":{"DEX":50,"LUK":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1042437,"name":"エテルネルパイレーツコート","set":"eternel","slot":"top","lv":250,"job":16,"tuc":8,"st":{"STR":50,"DEX":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1082761,"name":"エテルネルメイジグローブ","set":"eternel","slot":"glove","lv":250,"job":2,"tuc":8,"st":{"INT":55,"LUK":55,"MAD":12,"PDD":325,"MDD":250},"bdR":0,"imdR":0},{"id":1082762,"name":"エテルネルアーチャーグローブ","set":"eternel","slot":"glove","lv":250,"job":4,"tuc":8,"st":{"STR":55,"DEX":55,"PAD":12,"PDD":325,"MDD":250},"bdR":0,"imdR":0},{"id":1082763,"name":"エテルネルシーフグローブ","set":"eternel","slot":"glove","lv":250,"job":8,"tuc":8,"st":{"DEX":55,"LUK":55,"PAD":12,"PDD":325,"MDD":250},"bdR":0,"imdR":0},{"id":1082764,"name":"エテルネルパイレーツグローブ","set":"eternel","slot":"glove","lv":250,"job":16,"tuc":8,"st":{"STR":55,"DEX":55,"PAD":12,"PDD":325,"MDD":250},"bdR":0,"imdR":0},{"id":1062286,"name":"エテルネルメイジパンツ","set":"eternel","slot":"bottom","lv":250,"job":2,"tuc":8,"st":{"INT":50,"LUK":50,"MAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1062287,"name":"エテルネルアーチャーパンツ","set":"eternel","slot":"bottom","lv":250,"job":4,"tuc":8,"st":{"STR":50,"DEX":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1062288,"name":"エテルネルシーフパンツ","set":"eternel","slot":"bottom","lv":250,"job":8,"tuc":8,"st":{"DEX":50,"LUK":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1062289,"name":"エテルネルパイレーツパンツ","set":"eternel","slot":"bottom","lv":250,"job":16,"tuc":8,"st":{"STR":50,"DEX":50,"PAD":6,"PDD":325},"bdR":0,"imdR":5},{"id":1073630,"name":"エテルネルメイジシューズ","set":"eternel","slot":"shoes","lv":250,"job":2,"tuc":8,"st":{"INT":55,"LUK":55,"MAD":12,"PDD":325,"MDD":325,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1073631,"name":"エテルネルアーチャーシューズ","set":"eternel","slot":"shoes","lv":250,"job":4,"tuc":8,"st":{"STR":55,"DEX":55,"PAD":12,"PDD":325,"MDD":325,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1073632,"name":"エテルネルシーフシューズ","set":"eternel","slot":"shoes","lv":250,"job":8,"tuc":8,"st":{"DEX":55,"LUK":55,"PAD":12,"PDD":325,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1073633,"name":"エテルネルパイレーツシューズ","set":"eternel","slot":"shoes","lv":250,"job":16,"tuc":8,"st":{"STR":55,"DEX":55,"PAD":12,"PDD":325,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1212129,"name":"ジェネシスシャイニングロッド","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":237,"MAD":400},"bdR":30,"imdR":20},{"id":1213022,"name":"ジェネシスチューナー","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":340},"bdR":30,"imdR":20},{"id":1214022,"name":"ジェネシスブレスシューター","set":"eternel","slot":"weapon","lv":200,"job":4,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":318,"Speed":19},"bdR":30,"imdR":20},{"id":1222122,"name":"ジェネシスソウルシューター","set":"eternel","slot":"weapon","lv":200,"job":16,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":255},"bdR":30,"imdR":20},{"id":1232122,"name":"ジェネシスデスペラード","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"PAD":340,"MHP":2800},"bdR":30,"imdR":20},{"id":1242139,"name":"ジェネシスエネルギーチェーン","set":"eternel","slot":"weapon","lv":200,"job":24,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":255},"bdR":30,"imdR":20},{"id":1242141,"name":"ジェネシスエネルギーチェーン","set":"eternel","slot":"weapon","lv":200,"job":24,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":255},"bdR":30,"imdR":20},{"id":1252106,"name":"ジェネシスメモリアルスタッフ","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":237,"MAD":400},"bdR":30,"imdR":20},{"id":1262051,"name":"ジェネシスESPリミッター","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":237,"MAD":400},"bdR":30,"imdR":20},{"id":1272040,"name":"ジェネシスチェーン","set":"eternel","slot":"weapon","lv":200,"job":8,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":318},"bdR":30,"imdR":20},{"id":1282040,"name":"ジェネシスマジックガントレット","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":237,"MAD":400},"bdR":30,"imdR":20},{"id":1292022,"name":"ジェネシス創世術扇","set":"eternel","slot":"weapon","lv":200,"job":8,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":318},"bdR":30,"imdR":20},{"id":1302355,"name":"ジェネシスセイバー","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":326},"bdR":30,"imdR":20},{"id":1312213,"name":"ジェネシスアックス","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":326},"bdR":30,"imdR":20},{"id":1322264,"name":"ジェネシスハンマー","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":326},"bdR":30,"imdR":20},{"id":1332289,"name":"ジェネシスダガー","set":"eternel","slot":"weapon","lv":200,"job":8,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":318},"bdR":30,"imdR":20},{"id":1362149,"name":"ジェネシスケイン","set":"eternel","slot":"weapon","lv":200,"job":8,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":326},"bdR":30,"imdR":20},{"id":1372237,"name":"ジェネシスワンド","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":237,"MAD":400},"bdR":30,"imdR":20},{"id":1382274,"name":"ジェネシススタッフ","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":251,"MAD":406},"bdR":30,"imdR":20},{"id":1402268,"name":"ジェネシスグレートソード","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":340},"bdR":30,"imdR":20},{"id":1404022,"name":"ジェネシスイクリプス","set":"eternel","slot":"weapon","lv":200,"job":8,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":318},"bdR":30,"imdR":20},{"id":1412189,"name":"ジェネシストゥーハンドアックス","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":340},"bdR":30,"imdR":20},{"id":1422197,"name":"ジェネシストゥーハンドハンマー","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":340},"bdR":30,"imdR":20},{"id":1432227,"name":"ジェネシススピア","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":340},"bdR":30,"imdR":20},{"id":1442285,"name":"ジェネシス鉾","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":304},"bdR":30,"imdR":20},{"id":1452266,"name":"ジェネシスボウ","set":"eternel","slot":"weapon","lv":200,"job":4,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":318,"Speed":19},"bdR":30,"imdR":20},{"id":1462252,"name":"ジェネシスクロスボウ","set":"eternel","slot":"weapon","lv":200,"job":4,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":326,"Speed":19},"bdR":30,"imdR":20},{"id":1472275,"name":"ジェネシスガーズ","set":"eternel","slot":"weapon","lv":200,"job":8,"tuc":8,"st":{"DEX":150,"LUK":150,"PAD":172},"bdR":30,"imdR":20},{"id":1482232,"name":"ジェネシスクロー","set":"eternel","slot":"weapon","lv":200,"job":16,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":255},"bdR":30,"imdR":20},{"id":1492245,"name":"ジェネシスピストル","set":"eternel","slot":"weapon","lv":200,"job":16,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":249},"bdR":30,"imdR":20},{"id":1522152,"name":"ジェネシスデュアルボウガン","set":"eternel","slot":"weapon","lv":200,"job":4,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":318,"Speed":19},"bdR":30,"imdR":20},{"id":1532157,"name":"ジェネシスシズガン","set":"eternel","slot":"weapon","lv":200,"job":16,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":348,"PDD":250},"bdR":30,"imdR":20},{"id":1542128,"name":"ジェネシス刀","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":326},"bdR":30,"imdR":20},{"id":1552130,"name":"ジェネシス扇子","set":"eternel","slot":"weapon","lv":200,"job":2,"tuc":8,"st":{"INT":150,"LUK":150,"PAD":237,"MAD":400},"bdR":30,"imdR":20},{"id":1562010,"name":"ジェネシスラピス","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":342,"PDD":250},"bdR":30,"imdR":20},{"id":1572010,"name":"ジェネシスラズリ","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":337},"bdR":30,"imdR":20},{"id":1582044,"name":"ジェネシスエラサ","set":"eternel","slot":"weapon","lv":200,"job":1,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":255},"bdR":30,"imdR":20},{"id":1592022,"name":"ジェネシスエンシェントボウ","set":"eternel","slot":"weapon","lv":200,"job":4,"tuc":8,"st":{"STR":150,"DEX":150,"PAD":318,"Speed":19},"bdR":30,"imdR":20},{"id":1212142,"name":"デスティニーシャイニングロッド","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1212145,"name":"デスティニーシャイニングロッド","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":9,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1213053,"name":"デスティニーチューナー","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1213054,"name":"デスティニーチューナー","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1214049,"name":"デスティニーブレスシューター","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1214050,"name":"デスティニーブレスシューター","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1222135,"name":"デスティニーソウルシューター","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1222136,"name":"デスティニーソウルシューター","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1232135,"name":"デスティニーデスペラード","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"PAD":373,"MHP":3040},"bdR":30,"imdR":20},{"id":1232136,"name":"デスティニーデスペラード","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"PAD":373,"MHP":3040},"bdR":30,"imdR":20},{"id":1242160,"name":"デスティニーエネルギーチェーン","set":"eternel","slot":"weapon","lv":250,"job":24,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1242161,"name":"デスティニーエネルギーチェーン","set":"eternel","slot":"weapon","lv":250,"job":24,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":280},"bdR":30,"imdR":20},{"id":1242162,"name":"デスティニーエネルギーチェーン","set":"eternel","slot":"weapon","lv":250,"job":24,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1242163,"name":"デスティニーエネルギーチェーン","set":"eternel","slot":"weapon","lv":250,"job":24,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":280},"bdR":30,"imdR":20},{"id":1252129,"name":"デスティニーメモリアルスタッフ","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1252131,"name":"デスティニーメモリアルスタッフ","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":9,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1262065,"name":"デスティニーESPリミッター","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1262066,"name":"デスティニーESPリミッター","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":9,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1272054,"name":"デスティニーチェーン","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1272055,"name":"デスティニーチェーン","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1282054,"name":"デスティニーマジックガントレット","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1282056,"name":"デスティニーマジックガントレット","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":9,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1292050,"name":"デスティニー超越扇","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1292051,"name":"デスティニー超越扇","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1302373,"name":"デスティニーセイバー","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1302376,"name":"デスティニーセイバー","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1312226,"name":"デスティニーアックス","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1312227,"name":"デスティニーアックス","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1322279,"name":"デスティニーハンマー","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1322283,"name":"デスティニーハンマー","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1332303,"name":"デスティニーダガー","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1332305,"name":"デスティニーダガー","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1362161,"name":"デスティニーケイン","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":358},"bdR":30,"imdR":20},{"id":1362165,"name":"デスティニーケイン","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":358},"bdR":30,"imdR":20},{"id":1372251,"name":"デスティニーワンド","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1372252,"name":"デスティニーワンド","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":9,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1382287,"name":"デスティニースタッフ","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":275,"MAD":445},"bdR":30,"imdR":20},{"id":1382289,"name":"デスティニースタッフ","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":9,"st":{"INT":190,"LUK":190,"PAD":275,"MAD":445},"bdR":30,"imdR":20},{"id":1402290,"name":"デスティニーグレートソード","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1402295,"name":"デスティニーグレートソード","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1404046,"name":"デスティニーチャクラム","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1404047,"name":"デスティニーチャクラム","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":349},"bdR":30,"imdR":20},{"id":1412197,"name":"デスティニーバトルアックス","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1412198,"name":"デスティニーバトルアックス","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1422208,"name":"デスティニー戦鎚","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1422210,"name":"デスティニー戦鎚","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1432240,"name":"デスティニースピア","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1432242,"name":"デスティニースピア","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":373},"bdR":30,"imdR":20},{"id":1442299,"name":"デスティニー鉾","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":334},"bdR":30,"imdR":20},{"id":1442301,"name":"デスティニー鉾","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":334},"bdR":30,"imdR":20},{"id":1452285,"name":"デスティニーボウ","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1452287,"name":"デスティニーボウ","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1462268,"name":"デスティニークロスボウ","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":358,"Speed":19},"bdR":30,"imdR":20},{"id":1462270,"name":"デスティニークロスボウ","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":358,"Speed":19},"bdR":30,"imdR":20},{"id":1472288,"name":"デスティニーガーズ","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":8,"st":{"DEX":190,"LUK":190,"PAD":189},"bdR":30,"imdR":20},{"id":1472290,"name":"デスティニーガーズ","set":"eternel","slot":"weapon","lv":250,"job":8,"tuc":9,"st":{"DEX":190,"LUK":190,"PAD":189},"bdR":30,"imdR":20},{"id":1482245,"name":"デスティニークロー","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1482247,"name":"デスティニークロー","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1492259,"name":"デスティニーピストル","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":273},"bdR":30,"imdR":20},{"id":1492261,"name":"デスティニーピストル","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":273},"bdR":30,"imdR":20},{"id":1522164,"name":"デスティニーデュアルボウガン","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1522167,"name":"デスティニーデュアルボウガン","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1532170,"name":"デスティニーブラストキャノン","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":382,"PDD":290},"bdR":30,"imdR":20},{"id":1532172,"name":"デスティニーブラストキャノン","set":"eternel","slot":"weapon","lv":250,"job":16,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":382,"PDD":290},"bdR":30,"imdR":20},{"id":1542149,"name":"デスティニー刀","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1542151,"name":"デスティニー刀","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":358},"bdR":30,"imdR":20},{"id":1552152,"name":"デスティニー扇","set":"eternel","slot":"weapon","lv":250,"job":2,"tuc":8,"st":{"INT":190,"LUK":190,"PAD":260,"MAD":439},"bdR":30,"imdR":20},{"id":1562011,"name":"デスティニーラピス","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":375,"PDD":290},"bdR":30,"imdR":20},{"id":1562012,"name":"デスティニーラピス","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":375,"PDD":290},"bdR":30,"imdR":20},{"id":1572011,"name":"デスティニーラズリ","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":370},"bdR":30,"imdR":20},{"id":1572012,"name":"デスティニーラズリ","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":370},"bdR":30,"imdR":20},{"id":1582058,"name":"デスティニーエラサ","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1582060,"name":"デスティニーエラサ","set":"eternel","slot":"weapon","lv":250,"job":1,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":280},"bdR":30,"imdR":20},{"id":1592049,"name":"デスティニーエンシェントボウ","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":8,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1592051,"name":"デスティニーエンシェントボウ","set":"eternel","slot":"weapon","lv":250,"job":4,"tuc":9,"st":{"STR":190,"DEX":190,"PAD":349,"Speed":19},"bdR":30,"imdR":20},{"id":1073158,"name":"アーケインシェードナイトシューズ","set":"arcane","slot":"shoes","lv":200,"job":1,"tuc":8,"st":{"STR":40,"DEX":40,"PAD":9,"PDD":250,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1082695,"name":"アーケインシェードナイトグローブ","set":"arcane","slot":"glove","lv":200,"job":1,"tuc":8,"st":{"STR":40,"DEX":40,"PAD":9,"PDD":250,"MDD":250},"bdR":0,"imdR":0},{"id":1102940,"name":"アーケインシェードナイトケープ","set":"arcane","slot":"cape","lv":200,"job":1,"tuc":8,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":6,"MAD":6,"PDD":450,"MDD":450},"bdR":0,"imdR":0},{"id":1152196,"name":"アーケインシェードナイトショルダー","set":"arcane","slot":"shoulder","lv":200,"job":1,"tuc":2,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":20,"MAD":20,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1004808,"name":"アーケインシェードナイトハット","set":"arcane","slot":"hat","lv":200,"job":1,"tuc":12,"st":{"STR":65,"DEX":65,"PAD":7,"PDD":600},"bdR":0,"imdR":15},{"id":1053063,"name":"アーケインシェードナイトスーツ","set":"arcane","slot":"top","lv":200,"job":1,"tuc":13,"st":{"STR":85,"DEX":85,"PAD":9,"PDD":500,"MDD":500},"bdR":0,"imdR":10},{"id":1152197,"name":"アーケインシェードメイジショルダー","set":"arcane","slot":"shoulder","lv":200,"job":2,"tuc":2,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":20,"MAD":20,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1152198,"name":"アーケインシェードアーチャーショルダー","set":"arcane","slot":"shoulder","lv":200,"job":4,"tuc":2,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":20,"MAD":20,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1152199,"name":"アーケインシェードシーフショルダー","set":"arcane","slot":"shoulder","lv":200,"job":8,"tuc":2,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":20,"MAD":20,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1152200,"name":"アーケインシェードパイレーツショルダー","set":"arcane","slot":"shoulder","lv":200,"job":16,"tuc":2,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":20,"MAD":20,"PDD":300,"MDD":300},"bdR":0,"imdR":0},{"id":1004809,"name":"アーケインシェードメイジハット","set":"arcane","slot":"hat","lv":200,"job":2,"tuc":12,"st":{"INT":65,"LUK":65,"MAD":7,"PDD":600,"MDD":600},"bdR":0,"imdR":15},{"id":1004810,"name":"アーケインシェードアーチャーハット","set":"arcane","slot":"hat","lv":200,"job":4,"tuc":12,"st":{"STR":65,"DEX":65,"PAD":7,"PDD":600},"bdR":0,"imdR":15},{"id":1004811,"name":"アーケインシェードシーフハット","set":"arcane","slot":"hat","lv":200,"job":8,"tuc":12,"st":{"DEX":65,"LUK":65,"PAD":7,"PDD":600},"bdR":0,"imdR":15},{"id":1004812,"name":"アーケインシェードパイレーツハット","set":"arcane","slot":"hat","lv":200,"job":16,"tuc":12,"st":{"STR":65,"DEX":65,"PAD":7,"PDD":600},"bdR":0,"imdR":15},{"id":1102941,"name":"アーケインシェードメイジケープ","set":"arcane","slot":"cape","lv":200,"job":2,"tuc":8,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":6,"MAD":6,"PDD":450,"MDD":450},"bdR":0,"imdR":0},{"id":1102942,"name":"アーケインシェードアーチャーケープ","set":"arcane","slot":"cape","lv":200,"job":4,"tuc":8,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":6,"MAD":6,"PDD":450,"MDD":450},"bdR":0,"imdR":0},{"id":1102943,"name":"アーケインシェードシーフケープ","set":"arcane","slot":"cape","lv":200,"job":8,"tuc":8,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":6,"MAD":6,"PDD":450,"MDD":450},"bdR":0,"imdR":0},{"id":1102944,"name":"アーケインシェードパイレーツケープ","set":"arcane","slot":"cape","lv":200,"job":16,"tuc":8,"st":{"STR":35,"DEX":35,"INT":35,"LUK":35,"PAD":6,"MAD":6,"PDD":450,"MDD":450},"bdR":0,"imdR":0},{"id":1082696,"name":"アーケインシェードメイジグローブ","set":"arcane","slot":"glove","lv":200,"job":2,"tuc":8,"st":{"INT":40,"LUK":40,"MAD":9,"PDD":250,"MDD":250},"bdR":0,"imdR":0},{"id":1082697,"name":"アーケインシェードアーチャーグローブ","set":"arcane","slot":"glove","lv":200,"job":4,"tuc":8,"st":{"STR":40,"DEX":40,"PAD":9,"PDD":250,"MDD":250},"bdR":0,"imdR":0},{"id":1082698,"name":"アーケインシェードシーフグローブ","set":"arcane","slot":"glove","lv":200,"job":8,"tuc":8,"st":{"DEX":40,"LUK":40,"PAD":9,"PDD":250,"MDD":250},"bdR":0,"imdR":0},{"id":1082699,"name":"アーケインシェードパイレーツグローブ","set":"arcane","slot":"glove","lv":200,"job":16,"tuc":8,"st":{"STR":40,"DEX":40,"PAD":9,"PDD":250,"MDD":250},"bdR":0,"imdR":0},{"id":1053064,"name":"アーケインシェードメイジスーツ","set":"arcane","slot":"top","lv":200,"job":2,"tuc":13,"st":{"INT":85,"LUK":85,"MAD":9,"PDD":500,"MDD":500},"bdR":0,"imdR":10},{"id":1053065,"name":"アーケインシェードアーチャースーツ","set":"arcane","slot":"top","lv":200,"job":4,"tuc":13,"st":{"STR":85,"DEX":85,"PAD":9,"PDD":500,"MDD":500},"bdR":0,"imdR":10},{"id":1053066,"name":"アーケインシェードシーフスーツ","set":"arcane","slot":"top","lv":200,"job":8,"tuc":13,"st":{"DEX":85,"LUK":85,"PAD":9,"PDD":500,"MDD":500},"bdR":0,"imdR":10},{"id":1053067,"name":"アーケインシェードパイレーツスーツ","set":"arcane","slot":"top","lv":200,"job":16,"tuc":13,"st":{"STR":85,"DEX":85,"PAD":9,"PDD":500,"MDD":500},"bdR":0,"imdR":10},{"id":1073159,"name":"アーケインシェードメイジシューズ","set":"arcane","slot":"shoes","lv":200,"job":2,"tuc":8,"st":{"INT":40,"LUK":40,"MAD":9,"PDD":250,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1073160,"name":"アーケインシェードアーチャーシューズ","set":"arcane","slot":"shoes","lv":200,"job":4,"tuc":8,"st":{"STR":40,"DEX":40,"PAD":9,"PDD":250,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1073161,"name":"アーケインシェードシーフシューズ","set":"arcane","slot":"shoes","lv":200,"job":8,"tuc":8,"st":{"DEX":40,"LUK":40,"PAD":9,"PDD":250,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1073162,"name":"アーケインシェードパイレーツシューズ","set":"arcane","slot":"shoes","lv":200,"job":16,"tuc":8,"st":{"STR":40,"DEX":40,"PAD":9,"PDD":250,"MDD":250,"Speed":10,"Jump":7},"bdR":0,"imdR":0},{"id":1032223,"name":"ヴェラッドイヤリング(最上級)","set":"vellad","slot":"earring","lv":150,"job":0,"tuc":8,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":10,"MAD":10,"PDD":100,"MDD":100,"MHP":150,"MMP":150,"ACC":100,"EVA":100},"bdR":0,"imdR":0},{"id":1122267,"name":"ヴェラッド刻印ペンダント(最上級)","set":"vellad","slot":"pend","lv":150,"job":0,"tuc":7,"st":{"STR":28,"DEX":28,"INT":28,"LUK":28,"PAD":5,"MAD":5,"PDD":100,"MDD":100,"MHP":300,"MMP":300,"ACC":50,"EVA":50},"bdR":0,"imdR":0},{"id":1132246,"name":"ヴェラッド 刻印ベルト(最上級)","set":"vellad","slot":"belt","lv":150,"job":0,"tuc":4,"st":{"STR":60,"DEX":60,"INT":60,"LUK":60,"PAD":35,"MAD":35,"PDD":100,"MDD":100,"MHP":200,"MMP":200},"bdR":0,"imdR":0},{"id":1113075,"name":"ヴェラッドリング(最上級)","set":"vellad","slot":"ring","lv":150,"job":0,"tuc":7,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":8,"MAD":8,"PDD":150,"MDD":150,"MHP":250,"MMP":250,"ACC":100,"EVA":100,"Speed":10},"bdR":0,"imdR":0},{"id":1113312,"name":"ヴェラッドリング(最上級)","set":"vellad","slot":"ring","lv":150,"job":0,"tuc":6,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":8,"MAD":8,"PDD":150,"MDD":150,"MHP":250,"MMP":250,"ACC":100,"EVA":100,"Speed":10},"bdR":0,"imdR":0},{"id":1012478,"name":"凝縮された力の結晶石","set":"bossacc","slot":"face","lv":110,"job":0,"tuc":6,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":5,"MAD":5,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1012743,"name":"凝縮された力の結晶石","set":"bossacc","slot":"face","lv":110,"job":0,"tuc":6,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":5,"MAD":5,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1012828,"name":"凝縮された力の結晶石","set":"bossacc","slot":"face","lv":110,"job":0,"tuc":5,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":5,"MAD":5,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1012833,"name":"凝縮された力の結晶石","set":"bossacc","slot":"face","lv":110,"job":0,"tuc":6,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":5,"MAD":5,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1022231,"name":"アクアティックレター目飾り","set":"bossacc","slot":"eye","lv":100,"job":0,"tuc":4,"st":{"STR":6,"DEX":6,"INT":6,"LUK":6,"PAD":1,"MAD":1,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1022305,"name":"アクアティックレター目飾り","set":"bossacc","slot":"eye","lv":100,"job":0,"tuc":4,"st":{"STR":6,"DEX":6,"INT":6,"LUK":6,"PAD":1,"MAD":1,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1022342,"name":"アクアティックレター目飾り","set":"bossacc","slot":"eye","lv":100,"job":0,"tuc":3,"st":{"STR":6,"DEX":6,"INT":6,"LUK":6,"PAD":1,"MAD":1,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1022349,"name":"アクアティックレター目飾り","set":"bossacc","slot":"eye","lv":100,"job":0,"tuc":4,"st":{"STR":6,"DEX":6,"INT":6,"LUK":6,"PAD":1,"MAD":1,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1022232,"name":"ブラックビーンマーク","set":"bossacc","slot":"eye","lv":135,"job":0,"tuc":6,"st":{"STR":7,"DEX":7,"INT":7,"LUK":7,"PAD":1,"MAD":1,"PDD":120,"MDD":120,"ACC":30,"EVA":30},"bdR":0,"imdR":0},{"id":1022277,"name":"ビシャスプラントマーク","set":"bossacc","slot":"eye","lv":145,"job":0,"tuc":6,"st":{"STR":8,"DEX":8,"INT":8,"LUK":8,"PAD":1,"MAD":1,"PDD":150,"MDD":150},"bdR":0,"imdR":0},{"id":1032136,"name":"地獄の炎","set":"bossacc","slot":"earring","lv":130,"job":0,"tuc":6,"st":{"STR":7,"DEX":7,"INT":7,"LUK":7,"PAD":2,"MAD":2,"PDD":100,"MDD":100,"MHP":100,"MMP":100},"bdR":0,"imdR":0},{"id":1032241,"name":"デアセデュースイヤリング","set":"bossacc","slot":"earring","lv":130,"job":0,"tuc":7,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"PDD":50,"MDD":50},"bdR":0,"imdR":0},{"id":1032325,"name":"デアセデュースイヤリング","set":"bossacc","slot":"earring","lv":130,"job":0,"tuc":7,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"PDD":50,"MDD":50},"bdR":0,"imdR":0},{"id":1032342,"name":"デアセデュースイヤリング","set":"bossacc","slot":"earring","lv":130,"job":0,"tuc":6,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"PDD":50,"MDD":50},"bdR":0,"imdR":0},{"id":1032348,"name":"デアセデュースイヤリング","set":"bossacc","slot":"earring","lv":130,"job":0,"tuc":7,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"PDD":50,"MDD":50},"bdR":0,"imdR":0},{"id":1113149,"name":"シルバーブロッサムリング","set":"bossacc","slot":"ring","lv":110,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2},"bdR":0,"imdR":0},{"id":1113311,"name":"シルバーブロッサムリング","set":"bossacc","slot":"ring","lv":110,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2},"bdR":0,"imdR":0},{"id":1113339,"name":"シルバーブロッサムリング","set":"bossacc","slot":"ring","lv":110,"job":0,"tuc":2,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2},"bdR":0,"imdR":0},{"id":1113342,"name":"シルバーブロッサムリング","set":"bossacc","slot":"ring","lv":110,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2},"bdR":0,"imdR":0},{"id":1113282,"name":"高貴なイピアのリング","set":"bossacc","slot":"ring","lv":120,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"MHP":200,"MMP":200},"bdR":0,"imdR":0},{"id":1113313,"name":"ガーディアンエンジェルリング","set":"bossacc","slot":"ring","lv":160,"job":0,"tuc":3,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":2,"MAD":2,"MHP":200,"MMP":200},"bdR":0,"imdR":0},{"id":1122000,"name":"ホーンテイルのネックレス","set":"bossacc","slot":"pend","lv":120,"job":0,"tuc":3,"st":{"STR":7,"DEX":7,"INT":7,"LUK":7,"PDD":108,"MDD":108,"EVA":24},"bdR":0,"imdR":0},{"id":1122076,"name":"カオスホーンテイルのネックレス","set":"bossacc","slot":"pend","lv":120,"job":0,"tuc":3,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":2,"MAD":2,"PDD":140,"MDD":140,"EVA":32},"bdR":0,"imdR":0},{"id":1122254,"name":"メーカーネイターペンダント","set":"bossacc","slot":"pend","lv":120,"job":0,"tuc":3,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":1,"MAD":1,"PDD":100,"MDD":100,"MHP":250,"MMP":250},"bdR":0,"imdR":0},{"id":1122150,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":6,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1122372,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":5,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1122373,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":5,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1122374,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":5,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1122375,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":5,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1122376,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":5,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1122377,"name":"ドミネーターペンダント","set":"bossacc","slot":"pend","lv":140,"job":0,"tuc":5,"st":{"STR":20,"DEX":20,"INT":20,"LUK":20,"PAD":3,"MAD":3,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1132272,"name":"ゴールデンクローバーベルト","set":"bossacc","slot":"belt","lv":140,"job":0,"tuc":4,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":1,"MAD":1,"PDD":150,"MDD":150,"MHP":150,"MMP":150},"bdR":0,"imdR":0},{"id":1132322,"name":"ゴールデンクローバーベルト","set":"bossacc","slot":"belt","lv":140,"job":0,"tuc":4,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":1,"MAD":1,"PDD":150,"MDD":150,"MHP":150,"MMP":150},"bdR":0,"imdR":0},{"id":1132326,"name":"ゴールデンクローバーベルト","set":"bossacc","slot":"belt","lv":140,"job":0,"tuc":3,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":1,"MAD":1,"PDD":150,"MDD":150,"MHP":150,"MMP":150},"bdR":0,"imdR":0},{"id":1132327,"name":"ゴールデンクローバーベルト","set":"bossacc","slot":"belt","lv":140,"job":0,"tuc":4,"st":{"STR":15,"DEX":15,"INT":15,"LUK":15,"PAD":1,"MAD":1,"PDD":150,"MDD":150,"MHP":150,"MMP":150},"bdR":0,"imdR":0},{"id":1132296,"name":"怒ったジャクムのベルト","set":"bossacc","slot":"belt","lv":150,"job":0,"tuc":4,"st":{"STR":18,"DEX":18,"INT":18,"LUK":18,"PAD":1,"MAD":1,"PDD":150,"MDD":150,"MHP":150,"MMP":150},"bdR":0,"imdR":0},{"id":1152170,"name":"ロイヤルブラックメタルショルダー","set":"bossacc","slot":"shoulder","lv":120,"job":0,"tuc":2,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":6,"MAD":6,"PDD":100,"MDD":100},"bdR":0,"imdR":0},{"id":1162025,"name":"ピンクの聖杯","set":"bossacc","slot":"pocket","lv":140,"job":0,"tuc":0,"st":{"STR":5,"DEX":5,"INT":5,"LUK":5,"PAD":5,"MAD":5,"MHP":50,"MMP":50},"bdR":0,"imdR":0},{"id":1162009,"name":"永遠の命の石","set":"bossacc","slot":"pocket","lv":0,"job":0,"tuc":0,"st":{"STR":3,"DEX":3,"INT":3,"LUK":3,"PAD":3,"MAD":3},"bdR":0,"imdR":0},{"id":1182087,"name":"クリスタルウェントゥスバッジ","set":"bossacc","slot":"badge","lv":130,"job":0,"tuc":0,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":5,"MAD":5,"ACC":50,"EVA":50,"Speed":10,"Jump":10},"bdR":0,"imdR":0},{"id":1182304,"name":"クリスタルウェントゥスバッジ","set":"bossacc","slot":"badge","lv":130,"job":0,"tuc":0,"st":{"STR":10,"DEX":10,"INT":10,"LUK":10,"PAD":5,"MAD":5,"ACC":50,"EVA":50,"Speed":10,"Jump":10},"bdR":0,"imdR":0},{"id":1003797,"name":"ハイネスウォーリアヘルム","set":"rootabyss","slot":"hat","lv":150,"job":1,"tuc":12,"st":{"STR":40,"DEX":40,"PAD":2,"PDD":390,"MHP":360,"MMP":360,"ACC":240,"EVA":120},"bdR":0,"imdR":10},{"id":1005196,"name":"ハイネスウォーリアヘルム","set":"rootabyss","slot":"hat","lv":150,"job":1,"tuc":11,"st":{"STR":40,"DEX":40,"PAD":2,"PDD":390,"MHP":360,"MMP":360,"ACC":240,"EVA":120},"bdR":0,"imdR":10},{"id":1005302,"name":"ハイネスウォーリアヘルム","set":"rootabyss","slot":"hat","lv":150,"job":1,"tuc":12,"st":{"STR":40,"DEX":40,"PAD":2,"PDD":390,"MHP":360,"MMP":360,"ACC":240,"EVA":120},"bdR":0,"imdR":10},{"id":1005567,"name":"ハイネスウォーリアヘルム","set":"rootabyss","slot":"hat","lv":150,"job":1,"tuc":11,"st":{"STR":40,"DEX":40,"PAD":2,"PDD":390,"MHP":360,"MMP":360,"ACC":240,"EVA":120},"bdR":0,"imdR":10},{"id":1006425,"name":"ハイネスウォーリアヘルム","set":"rootabyss","slot":"hat","lv":150,"job":1,"tuc":11,"st":{"STR":40,"DEX":40,"PAD":2,"PDD":390,"MHP":360,"MMP":360,"ACC":240,"EVA":120},"bdR":0,"imdR":10},{"id":1042254,"name":"イーグルアイウォーリアアーマー","set":"rootabyss","slot":"top","lv":150,"job":1,"tuc":8,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1042387,"name":"イーグルアイウォーリアアーマー","set":"rootabyss","slot":"top","lv":150,"job":1,"tuc":7,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1042392,"name":"イーグルアイウォーリアアーマー","set":"rootabyss","slot":"top","lv":150,"job":1,"tuc":8,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1042410,"name":"イーグルアイウォーリアアーマー","set":"rootabyss","slot":"top","lv":150,"job":1,"tuc":7,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1042458,"name":"イーグルアイウォーリアアーマー","set":"rootabyss","slot":"top","lv":150,"job":1,"tuc":7,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1062165,"name":"トリックスターウォーリアパンツ","set":"rootabyss","slot":"bottom","lv":150,"job":1,"tuc":8,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1062253,"name":"トリックスターウォーリアパンツ","set":"rootabyss","slot":"bottom","lv":150,"job":1,"tuc":7,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1062258,"name":"トリックスターウォーリアパンツ","set":"rootabyss","slot":"bottom","lv":150,"job":1,"tuc":8,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1062271,"name":"トリックスターウォーリアパンツ","set":"rootabyss","slot":"bottom","lv":150,"job":1,"tuc":7,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5},{"id":1062296,"name":"トリックスターウォーリアパンツ","set":"rootabyss","slot":"bottom","lv":150,"job":1,"tuc":7,"st":{"STR":30,"DEX":30,"PAD":2,"PDD":210,"MDD":60,"ACC":30,"EVA":30},"bdR":0,"imdR":5}]};
+/* セットの部位名 → ツールの装備枠 */
+const SET2GEAR = {hat:['hat'], top:['top'], bottom:['bottom'], shoes:['shoes'], glove:['glove'], cape:['cape'],
+  shoulder:['shoulder'], weapon:['weapon'], face:['face'], eye:['eye'], earring:['ear'],
+  pend:['pend1','pend2'], ring:['ring1','ring2','ring3'], belt:['belt'], pocket:['pocket'],
+  badge:['badge'], medal:['medal'], emblem:['emblem'], heart:['heart']};
+/* 素体表の1件 → 換算に使う5つの数（主ステ・サブステ・攻撃力/魔力・ボスダメ・防御率無視） */
+function baseStat(b, ch){
+  const s = b.st || {}, sub = (ch.sub && ch.sub!=='なし') ? (+s[ch.sub]||0) : 0;
+  return {main:+s[ch.main||'STR']||0, sub:sub, atk:(ch.atkKind==='matk' ? (+s.MAD||0) : (+s.PAD||0)),
+          boss:+b.bdR||0, ied:+b.imdR||0};
+}
+function baseVal(o, conv){
+  return (+o.main||0)*(conv.mainStat||0) + (+o.sub||0)*(conv.subStat||0) + (+o.atk||0)*(conv.atk||0)
+       + (+o.boss||0)*(conv.bossDmg||0) + (+o.ied||0)*(conv.ignoreDef||0);
+}
+/* ★n までに積まれるステ・攻撃力の換算（設定の表の累計。レベルによる違いは入っていない） */
+function sfVal(n, conv){
+  let v = 0; const rows = S.settings.rows;
+  for(let s=0; s<n && s<rows.length; s++) v += (+rows[s].as||0)*(conv.mainStat||0) + (+rows[s].aa||0)*(conv.atk||0);
+  return v;
+}
+/* 職業に合う装備だけ。主ステが無い装備（アクセサリなど）は残す。 */
+function baseFits(b, ch){
+  const s = b.st||{}, ks = ['STR','DEX','INT','LUK'];
+  return ks.every(k=>!s[k]) || !!s[ch.main||'STR'];
+}
+function baseLabel(b){ return b.name + ' (Lv'+b.lv+(b.tuc?'・スロット'+b.tuc:'')+')'; }
+/* キューブ。使うがONのうち、一番上の等級まで回せるもの */
+function topCube(){
+  const pool = POT_CUBES.filter(c=> cubeCost(c)>0);
+  let cs = pool.filter(cubeOn); if(!cs.length) cs = pool;
+  return cs.slice().sort((a,b)=> TIERS.indexOf(b.max)-TIERS.indexOf(a.max) || cubeCost(b)-cubeCost(a))[0] || null;
+}
+/* 上潜在の3行合計が X 以上になる確率を、等級ごとに。昇級の費用は含まない。 */
+function potReach(ch, group, lv, X){
+  const pool = POT_CUBES.filter(c=> cubeCost(c)>0);
+  let cubes = pool.filter(cubeOn); if(!cubes.length) cubes = pool;
+  const top = topCube(), out = [];
+  TIER4.forEach((t,i)=>{
+    let best = null;
+    cubes.forEach(c=>{
+      if(TIERS.indexOf(c.max)-1 < i) return;
+      const d = potDist(ch, group, t, lv, c, false); if(!d) return;
+      let p = 0; d.forEach((pr,v)=>{ if(v >= X-1e-9) p += pr; });
+      if(p > 0 && (!best || cubeCost(c)/p < best.cost)) best = {c:c, p:p, cost:cubeCost(c)/p};
+    });
+    let ex = null;
+    if(best && top) bestCombos(ch, group, t, lv, top, false, 9999).forEach(r=>{
+      if(r.v >= X-1e-9 && (!ex || r.v < ex.v)) ex = r; });
+    out.push({t:t, best:best, ex:ex});
+  });
+  return out;
+}
+/* ============================================================
+   段階4: 1から作る総メル
+   換装先を素体から、「今の装備に並ぶ」ところまで育てる平均の費用。
+   ★は sfExpect（破壊したときの素体の買い直し込み）、潜在・アディは昇級＋目標回し、転生は炎を買い続ける費用。
+   growthPanel と同じ考え方だが、あちらは表示と一体なので別に持っている（直すときは両方）。
+   ============================================================ */
+/* 等級を1つ上げる費用（その段の一番安いキューブ。上潜在は書も比べる）。upc[行き先の等級] = {best, how} */
+function promoCosts(cubes, isAdd){
+  const upc = {};
+  for(let i=0; i<3; i++){
+    const to = TIER4[i+1];
+    cubes.forEach(c=>{
+      if(TIERS.indexOf(c.max)-1 < i+1) return;
+      const p = (((POT_DATA.cubes[c.d]||{}).up||{})[to]||0)/100; if(!(p>0)) return;
+      const by = cubeCost(c)/p;
+      if(!upc[to] || by < upc[to].best) upc[to] = {best:by, how:cubeShort(c)};
+    });
+    if(!isAdd) SCROLLS.forEach(s=>{
+      if(s.to!==to || !upc[to]) return;
+      const mine = scrollCost(s);
+      if(mine>0 && mine < upc[to].best) upc[to] = {best:mine, how:s.n};
+    });
+  }
+  return upc;
+}
+/* レアから始めて、3行の合計が X 以上になるまでの平均の費用。等級ごとに「昇級＋その等級で回す」を比べて一番安いもの。 */
+function potBuildCost(ch, group, lv, X, isAdd, memo){
+  const pool = (isAdd ? ADD_CUBES : POT_CUBES).filter(c=> cubeCost(c)>0);
+  let cubes = pool.filter(cubeOn); if(!cubes.length) cubes = pool;
+  if(!cubes.length) return null;
+  const upc = promoCosts(cubes, isAdd);
+  let best = null;
+  TIER4.forEach((t,ti)=>{
+    let add = 0;
+    for(let i=1; i<=ti; i++){ const u = upc[TIER4[i]]; if(!u){ add = Infinity; break; } add += u.best; }
+    if(!isFinite(add)) return;
+    let roll = Infinity, rc = null;
+    cubes.forEach(c=>{
+      if(TIERS.indexOf(c.max)-1 < ti) return;
+      const k = [isAdd?'a':'p', group, t, lv, c.k].join('|');
+      let d = memo[k]; if(d===undefined) d = memo[k] = potDist(ch, group, t, lv, c, isAdd) || null;
+      if(!d) return;
+      let p = 0; d.forEach((pr,v)=>{ if(v >= X-1e-9) p += pr; });
+      if(p > 0){ const v = cubeCost(c)/p; if(v < roll){ roll = v; rc = c; } }
+    });
+    if(!isFinite(roll)) return;
+    if(!best || add+roll < best.cost) best = {cost:add+roll, tier:t, cube:rc};
+  });
+  return best;
+}
+/* 転生の合計が V 以上になるまで、メルで買える炎（使うがON）を回す一番安い費用。ボス装備として数える。 */
+function flameBuildCost(ch, gk, fit, V){
+  let best = null;
+  FLAMES.forEach(f=>{
+    if(!f.mel || !flameOn(f)) return;
+    const per = flameCost(f); if(!(per>0)) return;
+    const a = flameTailOver(ch, gk, fit, f, V-1e-5); if(!(a.p>0)) return;
+    const c = per/a.p; if(!best || c < best.cost) best = {cost:c, f:f, p:a.p};
+  });
+  return best;
+}
+const NEED_LIMIT = 1e12;
+function needMel(v){ return !isFinite(v) ? '<span style="color:var(--faint)">届かない</span>'
+  : v >= NEED_LIMIT ? '<span style="color:var(--faint)">1兆超</span>' : mel(v); }
+function needCost(x){
+  const ch = x.ch, sl = x.sl, tgt = x.tgt, gk = x.gk, memo = {};
+  const group = POT_GROUP[gk], agroup = ADD_GROUP[gk];
+  const isW = sl.c==='武器';
+  const fit = {lv:tgt.lv, isBoss:true, canFl:true,
+               baseAtk: isW ? (ch.atkKind==='matk' ? (+(tgt.st||{}).MAD||0) : (+(tgt.st||{}).PAD||0)) : 0};
+  // ★に関係なく同じ費用になるもの（足りない分が出る行だけに足す）
+  let fCost = 0, fHow = '';
+  if(x.fV > 0){
+    if(!sl.fl) fCost = Infinity;
+    else{ const fb = flameBuildCost(ch, gk, fit, x.fV); fCost = fb ? fb.cost : Infinity; fHow = fb ? fb.f.n : ''; }
+  }
+  let aCost = 0, aHow = '';
+  if(x.addAs > 0){
+    const ab = (agroup && sl.pot) ? potBuildCost(ch, agroup, tgt.lv, x.addAs, true, memo) : null;
+    aCost = ab ? ab.cost : Infinity; aHow = ab ? ab.tier : '';
+  }
+  let rows = '', bestIdx = -1, bestV = Infinity;
+  const cells = x.rowData.map(r=>{
+    const sfc = (sl.sf && r.n>0) ? sfExpect({lv:tgt.lv, base:x.price}, 0, r.n).mel : 0;
+    let pc = 0, ph = '', ac = 0, fc = 0;
+    if(r.R > 0){
+      ac = aCost; fc = fCost;
+      if(r.rest > 0){
+        const pb = (group && sl.pot) ? potBuildCost(ch, group, tgt.lv, r.rest, false, memo) : null;
+        pc = pb ? pb.cost : Infinity; ph = pb ? pb.tier+'・'+cubeShort(pb.cube) : '';
+      }
+    }
+    const total = x.price + sfc + pc + ac + fc;
+    return {r:r, sfc:sfc, pc:pc, ph:ph, ac:ac, fc:fc, total:total};
+  });
+  // 1兆を超える行は「届く」とは言わない
+  cells.forEach((c,i)=>{ if(c.total < NEED_LIMIT && c.total < bestV){ bestV = c.total; bestIdx = i; } });
+  const sumLine = bestIdx>=0
+    ? '<p class="hint" style="font-size:13px;color:var(--text)"><b style="color:var(--ok)">一番安いのは '
+      + (sl.sf ? '★'+cells[bestIdx].r.n+' まで上げる組み合わせ' : 'この組み合わせ')+'</b>：約 '+mel(bestV)+'。</p>'
+    : '<p class="hint" style="font-size:13px;color:var(--warn)"><b>今の仮定では、1兆メル以内に今の装備へ並べる組み合わせが無い。</b>'
+      + '試す★を増やすか、転生・アディの仮定を下げると見えてくる。</p>';
+  cells.forEach((c,i)=>{
+    rows += '<tr'+(i===bestIdx ? ' class="here"' : (c.total>=NEED_LIMIT||!isFinite(c.total) ? ' style="opacity:.55"' : ''))+'>'
+      + '<td class="num">'+(sl.sf ? '★'+c.r.n : '—')+(i===bestIdx ? '<span class="sub" style="color:var(--ok)">← 最安</span>' : '')+'</td>'
+      + '<td class="num">'+needMel(x.price)+'</td>'
+      + '<td class="num">'+(sl.sf ? needMel(c.sfc) : '—')+'</td>'
+      + '<td class="num">'+needMel(c.pc)+(c.ph ? '<span class="sub">'+esc(c.ph)+'</span>' : '')+'</td>'
+      + '<td class="num">'+needMel(c.ac)+(c.ac>0&&aHow ? '<span class="sub">'+esc(aHow)+'</span>' : '')+'</td>'
+      + '<td class="num">'+needMel(c.fc)+(c.fc>0&&fHow ? '<span class="sub">'+esc(fHow)+'</span>' : '')+'</td>'
+      + '<td class="num gain">'+needMel(c.total)+'</td></tr>';
+  });
+  return '<div class="sect"><h4>1から作る総メル</h4>'
+    + '<p class="hint">上の表の組み合わせごとに、<b>換装先を素体から作って今の装備に並ぶまで</b>の平均の費用。</p>'
+    + '<label class="f" style="max-width:260px"><span>換装先の素体の相場（例 3G。破壊したときの買い直しにも使う）</span>'
+    + '<input type="text" id="swn-price" value="'+esc(x.priceStr)+'" placeholder="未入力＝0メル"></label>'
+    + (x.price>0 ? '' : '<p class="hint" style="color:var(--warn)">素体の相場が未入力なので0メル扱い。素体代と、★の破壊で買い直す費用が抜けている。</p>')
+    + sumLine
+    + '<div class="scrollx"><table class="mini gp"><thead><tr><th class="num">★</th><th class="num">素体</th>'
+    + '<th class="num">スタフォ</th><th class="num">上潜在</th><th class="num">アディ</th><th class="num">転生</th>'
+    + '<th class="num">合計</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    + '<p class="hint">すべて<b>平均値</b>で、運で大きくぶれる。素体を買う前提（相場は上で入力）。'
+    + '<br>スタフォ: 0★から、破壊したら素体を買い直して設定の「破壊後に戻る★」からやり直す前提（設定の確率・イベント・費用がそのまま効く）。'
+    + '<br>潜在・アディ: <b>レアから始めて</b>、昇級＋その等級で目標に届くまで回す費用（等級ごとに比べて一番安いもの。使うがONのキューブから選ぶ）。'
+    + 'アディは今の装備と同じ値に届かせる仮定（上の「アディ潜在は今の装備と同じ」）。'
+    + '<br>転生: 上で入れた値以上になるまで、メルで買える炎（強力・永遠のうち使うがON）を回す費用。<b>ボス装備として計算</b>。手持ちの黒い・深淵の炎は数えない。'
+    + '<br>「今の装備に並ぶ」必要が無い行（素体＋★だけで超える）には、潜在・アディ・転生の費用を足していない。'
+    + '</p></div>';
+}
+function renderNeed(set, setDelta){
+  const host = $('swneed'), ch = C(), conv = ch.conv; if(!host) return;
+  const ui = S.ui;
+  const costHost = $('swcost');
+  if(costHost) costHost.innerHTML = '<p class="hint">先に「② 必要な強化」で、比べる装備と換装先を選ぶ。</p>';
+  // 比較できる装備枠（このセットの部位で、登録済みのもの）
+  const opts = [];
+  set.slots.forEach(s=>{ (SET2GEAR[s.slot]||[]).forEach(gk=>{
+    if(ch.gear[gk] && !opts.some(o=>o.gk===gk)) opts.push({gk:gk, sk:s.slot}); }); });
+  let html = '<div class="sect"><h4>換装先に必要な強化</h4>';
+  if(!opts.length){
+    host.innerHTML = html + '<p class="hint">このセットの部位に当たる装備が登録されていない。「強化」モードで今の装備を登録すると、ここで比べられる。</p></div>';
+    return;
+  }
+  const o = opts.find(x=>x.gk===ui.swapCur) || opts[0];
+  const gk = o.gk, sl = SLMAP[gk], it = ch.gear[gk];
+  const list = BASE_DATA ? BASE_DATA.items.filter(b=> b.set===set.id && b.slot===o.sk && baseFits(b,ch)) : [];
+  if(!list.length){
+    host.innerHTML = html + '<p class="hint">この部位の素体データが無い（職業に合うものが無い）。</p></div>';
+    return;
+  }
+  const tgt = list.find(b=> String(b.id)===String(ui.swapTgt)) || list[0];
+  // 今の装備の素体: 手で直した値があればそれ、無ければ装備名が表と合うものから
+  const all = BASE_DATA.items.filter(b=> b.slot===o.sk && baseFits(b,ch));
+  const nm = (it.name||'').trim();
+  const autoB = nm ? all.find(b=> b.name===nm || nm.indexOf(b.name)>=0 || b.name.indexOf(nm)>=0) : null;
+  const saved = (ui.swapCurBase||{})[gk];
+  const curBase = saved || (autoB ? baseStat(autoB,ch) : {main:0, sub:0, atk:0, boss:0, ied:0});
+  const baseKnown = !!saved || !!autoB;
+
+  const flame = ui.swapFlame || it.flame || newFlame();
+  const fV = flameVal(flame, conv);
+  const addAs = ui.swapAddSame!==false ? sumLines(it.add, conv) : 0;
+  const incSet = ui.swapSetOn!==false;
+  const capS = sl.sf ? Math.min(30, Math.max(starCap(tgt.lv), 0)) : 0;
+  let stars = String(ui.swapStars==null ? '17,18,20,22' : ui.swapStars).split(/[,、\s]+/)
+    .map(Number).filter(n=> isFinite(n) && n>=0 && n<=capS && n===Math.floor(n));
+  if(!sl.sf) stars = [0];
+  if(!stars.length) stars = [0];
+  stars = stars.filter((n,i)=> stars.indexOf(n)===i).sort((a,b)=>a-b);
+
+  const vCurBase = baseVal(curBase, conv);
+  const vCur = vCurBase + (sl.sf ? sfVal(+it.star||0, conv) : 0) + sumLines(it.pot, conv) + sumLines(it.add, conv) + itemFlame(it, conv);
+  const vTgtBase = baseVal(baseStat(tgt,ch), conv) + (incSet ? setDelta : 0);
+  const group = POT_GROUP[gk], canPot = sl.pot && group;
+
+  let rows = '';
+  const rowData = [];
+  stars.forEach(n=>{
+    const sf = sl.sf ? sfVal(n, conv) : 0;
+    const R = vCur - vTgtBase - sf;                 // ★まで積んだ後に、残りで出す分
+    const rest = R - fV - addAs;                    // 転生とアディ(想定)を引いた、上潜在で出す分
+    let cell = '';
+    if(R <= 0) cell = '<span style="color:var(--ok)">素体＋★だけで超える</span>';
+    else if(rest <= 0) cell = '<span style="color:var(--ok)">転生とアディの想定だけで届く</span>';
+    else if(!canPot) cell = '<span style="color:var(--warn)">この部位は潜在が付かない。足りない</span>';
+    else{
+      const rr = potReach(ch, group, tgt.lv, rest);
+      // 平均100万個を超えるものは「届く」と言わない（確率が0.0001%未満）
+      const ok = rr.filter(x=> x.best && x.best.p >= 1e-6);
+      if(!ok.length) cell = '<span style="color:var(--warn)">'
+        + (rr.some(x=>x.best) ? '現実的には届かない（平均100万個超）' : 'どの等級でも届かない（理論値より上）') + '</span>';
+      else{
+        const lo = ok[0], hi = ok[ok.length-1];
+        cell = tierPill(lo.t)+'から可能 '+pct(lo.best.p)+'/個（平均'+cnt(1/lo.best.p).replace('個','回')+'）'
+             + (lo.ex ? '<s>≒ '+esc(lo.ex.parts.join(' ＋ '))+'</s>' : '')
+             + (hi!==lo ? '<span class="sub">'+tierPill(hi.t)+'なら '+pct(hi.best.p)+'/個（平均'+cnt(1/hi.best.p).replace('個','回')+'）</span>' : '');
+      }
+    }
+    rowData.push({n:n, R:R, rest:rest});
+    rows += '<tr><td class="num">'+(sl.sf ? '★'+n : '—')+'</td><td class="num">'+p2(sf)+'</td>'
+      + '<td class="num">'+p2(Math.max(R,0))+'</td><td class="num">'+p2(Math.max(rest,0))+'</td><td>'+cell+'</td></tr>';
+  });
+
+  const std = flameStd(tgt.lv, true), rk = std ? flameRank(flameScore(flame), std) : null;
+  const priceStr = (ui.swapPrice||{})[String(tgt.id)] || '';
+  const price = parseMel(priceStr) || 0;
+  const costHtml = needCost({ch:ch, gk:gk, sl:sl, tgt:tgt, rowData:rowData, addAs:addAs, fV:fV, price:price, priceStr:priceStr});
+  host.innerHTML = html
+    +'<p class="hint">今の装備と同じ総合値（最終ダメ換算）まで、換装先を育てるには何が要るかを★ごとに出す。'
+    +'★・転生・アディは<b>仮定</b>で、潜在（上）で足りない分を逆算する。</p>'
+    +'<div class="grid2">'
+    +'<label class="f"><span>今の装備（比べる枠）</span><select id="swn-cur">'
+      + opts.map(x=>'<option value="'+x.gk+'"'+(x.gk===gk?' selected':'')+'>'+esc(SLMAP[x.gk].n)+'：'+esc(ch.gear[x.gk].name||'(名前なし)')+'</option>').join('')
+    +'</select></label>'
+    +'<label class="f"><span>換装先</span><select id="swn-tgt">'
+      + list.map(b=>'<option value="'+b.id+'"'+(b.id===tgt.id?' selected':'')+'>'+esc(baseLabel(b))+'</option>').join('')
+    +'</select></label>'
+    +'<label class="f"><span>試す★（カンマ区切り、'+(sl.sf?'上限'+capS:'この部位はスタフォなし')+'）</span>'
+      +'<input type="text" id="swn-stars" value="'+esc(sl.sf ? stars.join(',') : '')+'"'+(sl.sf?'':' disabled')+'></label>'
+    +'<label class="chk" style="align-self:end"><input type="checkbox" id="swn-set"'+(incSet?' checked':'')+'>セット効果の増減を含める（'+p2(setDelta)+'）</label>'
+    +'</div>'
+    +'<p class="cap">今の装備の素体（'+(baseKnown ? (saved ? '手入力' : '表から自動：'+esc(autoB.name)) : '<span style="color:var(--warn)">表に無い。手で入れる</span>')+'）</p>'
+    +'<div class="grid2">'
+    + [['main','主ステ'],['sub','サブステ'],['atk','攻撃力/魔力'],['boss','ボスダメ%'],['ied','防御無視%']].map(([k,n])=>
+        '<label class="f"><span>'+n+'</span><input type="number" data-sbase="'+k+'" value="'+(+curBase[k]||0)+'"></label>').join('')
+    +'<label class="f"><span>表から選ぶ</span><select id="swn-pick"><option value="">—</option>'
+      + all.map(b=>'<option value="'+b.id+'">'+esc(baseLabel(b))+'</option>').join('')+'</select></label>'
+    +'</div>'
+    +'<p class="cap">換装先の仮定</p>'
+    +'<div class="grid2">'
+    + FLAMEF.map(([k,n])=>'<label class="f"><span>転生：'+n+'</span><input type="number" data-sfl="'+k+'" value="'+(+flame[k]||0)+'"></label>').join('')
+    +'<label class="chk" style="align-self:end"><input type="checkbox" id="swn-add"'+(ui.swapAddSame!==false?' checked':'')+'>アディ潜在は今の装備と同じ（'+p2(sumLines(it.add,conv))+'）</label>'
+    +'</div>'
+    +'<p class="hint">入れた転生は '+flameScore(flame).toFixed(0)+'点'+(rk?'（Lv'+tgt.lv+'のボス装備の目安で「'+rk.n+'」）':'')+' ＝ '+p2(fV)+'。'
+    +'今の装備の転生をそのまま初期値にしている。</p>'
+    +'<div class="scrollx"><table class="mini gp"><thead><tr><th class="num">★</th><th class="num">★の分</th>'
+    +'<th class="num">残りで出す分</th><th class="num">うち上潜在</th><th>上潜在で届くか</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<p class="hint">今の装備の総合 '+p2(vCur)+'（素体 '+p2(vCurBase)+'）／ 換装先の素体＋セット '+p2(vTgtBase)+'。'
+    +'「残りで出す分」＝ 今の総合 − 換装先の素体 − セット増減 − ★の分。「うち上潜在」＝ そこから転生とアディの仮定を引いた分。'
+    +'確率は使うがONのキューブで、<b>その値以上</b>が出る確率（昇級の費用は含まない。メルは段階4）。'
+    +'<br><b>★の分は設定の「★ごとの上昇」表を使っている</b>。この表は装備レベルによる違いが入っていない未確認の目安なので、Lv200とLv250を比べると差を小さく見積もる。'
+    +'防御率無視・ボスダメは線形の近似。</p></div>';
+  if(costHost) costHost.innerHTML = costHtml;
+
+  const redo = ()=>{ save(); renderNeed(set, setDelta); };
+  $('swn-cur').onchange = ()=>{ ui.swapCur = $('swn-cur').value; ui.swapTgt = ''; ui.swapFlame = null; redo(); };
+  $('swn-tgt').onchange = ()=>{ ui.swapTgt = $('swn-tgt').value; redo(); };
+  if($('swn-stars')) $('swn-stars').onchange = ()=>{ ui.swapStars = $('swn-stars').value; redo(); };
+  $('swn-set').onchange = ()=>{ ui.swapSetOn = $('swn-set').checked; redo(); };
+  $('swn-price').onchange = ()=>{ (ui.swapPrice = ui.swapPrice||{})[String(tgt.id)] = $('swn-price').value.trim(); redo(); };
+  $('swn-add').onchange = ()=>{ ui.swapAddSame = $('swn-add').checked; redo(); };
+  $('swn-pick').onchange = ()=>{ const b = all.find(x=>String(x.id)===$('swn-pick').value); if(!b) return;
+    (ui.swapCurBase = ui.swapCurBase||{})[gk] = baseStat(b,ch); redo(); };
+  host.querySelectorAll('[data-sbase]').forEach(i=> i.onchange = ()=>{
+    const m = (ui.swapCurBase = ui.swapCurBase||{}); m[gk] = Object.assign({}, curBase); m[gk][i.dataset.sbase] = +i.value||0; redo(); });
+  host.querySelectorAll('[data-sfl]').forEach(i=> i.onchange = ()=>{
+    ui.swapFlame = Object.assign({}, flame); ui.swapFlame[i.dataset.sfl] = +i.value||0; redo(); });
+}
+function renderAll(){
+  renderChars(); renderMode(); renderBar();
+  const sw = S.ui.mode==='swap';
+  ['tools','gridwrap','gridfoot'].forEach(id=>{ $(id).style.display = sw ? 'none' : ''; });
+  $('swap').style.display = sw ? '' : 'none';
+  if(sw) renderSwap(); else { renderTools(); renderGrid(); }
+  renderSide();
+}
 
 $('charsel').onchange = ()=>{ S.active = $('charsel').value; S.ui.open = null; POT_MEMO.clear(); save(); renderAll(); };
 $('charadd').onclick = ()=>{ const n = prompt('キャラ名', 'キャラ'+(S.chars.length+1)); if(n===null) return;
