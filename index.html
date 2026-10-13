@@ -2782,13 +2782,23 @@ function growthPanel(sl, it, isAdd, probe){
   /* テスト用: 費用の中身を外に渡す(挙動は変えない)。換装③の potBuildCost と食い違っていないかを test_gear.js が見る */
   if(probe){ probe.route = route; probe.rows = rows; probe.heads = heads; probe.cubes = cubes; probe.upc = upc; }
   /* コスパ最良の目標(総額あたりの伸びが最大)と、ひとつ前の目標からの追加分の効率 */
-  let rec = null;
+  /* 「コスパ最良」は総額あたりの伸びの最大。放っておくと +0.02% のような
+     ほぼ何も狙わない最小の目標が選ばれるので、伸びが一覧の最大の10%に満たない段は
+     候補から外す(表には残す)。10%は目安で根拠のある数字ではない。 */
+  const REC_MIN_SHARE = 0.1;
+  const gainMax = rows.reduce((m,r)=> Math.max(m, r.X-cur), 0);
+  const recMin = gainMax * REC_MIN_SHARE;
+  let rec = null, recAny = null;
   rows.forEach((r,i)=>{
-    if(r.ok && r.eff>0 && (!rec || r.eff > rec.eff)) rec = r;
+    if(r.ok && r.eff>0){
+      if(!recAny || r.eff > recAny.eff) recAny = r;
+      if(r.X-cur >= recMin-1e-9 && (!rec || r.eff > rec.eff)) rec = r;
+    }
     const p = rows[i-1];
     r.marg = (p && p.ok && r.ok && r.pick[0] > p.pick[0])
       ? (r.X-p.X)/((r.pick[0]-p.pick[0])/1e9) : null;
   });
+  if(!rec) rec = recAny;                                // 全部が最小の段だけのときは従来どおり
   let t4 = '';
   rows.forEach(r=>{
     const L = r.L, X = r.X;
