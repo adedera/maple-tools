@@ -270,6 +270,19 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .sect h4{margin:0 0 8px;font-size:11px;letter-spacing:.04em;color:var(--accent);font-weight:700;
   display:flex;align-items:center;gap:8px}
 .sect h4 .sp{margin-left:auto}
+/* 狭い画面(スマホ・タブレット)。1100px以上は上のルールのまま。 */
+@media(max-width:1099px){
+  /* 開いた行の詳細は、表が横に流れても画面の中に留める。中の見込みの表は各自の .scrollx で流れる。 */
+  .dbox{grid-template-columns:minmax(0,1fr)}
+  tr.detail > td > .dbox{position:sticky;left:10px;width:calc(var(--gw,320px) - 20px)}
+  /* 絞り込みタブが画面より長いときは、その中だけ横に流す */
+  .seg.inline{max-width:100%;overflow-x:auto}
+  .seg.inline::-webkit-scrollbar{display:none}
+  .chk{white-space:normal;align-items:flex-start}
+  .chk input{margin-top:3px}
+  /* 装備名の列が1文字幅まで潰れないように */
+  tr.row > td:nth-child(2){min-width:9em}
+}
 </style>
 </head>
 <body>
@@ -4072,18 +4085,18 @@ function renderSwap(){
    +'「② 必要な強化」では、比べている部位は換装後に着ける前提で自動計算する（ここで先にチェックしなくてよい）。他の部位の換装後チェックはそのまま反映される。</p>'
    + (set.jmsOnly ? '<p class="hint">日本版のみのセット。韓国版には無いので、韓国wikiでの裏取りはできていない（画像が根拠）。</p>' : '')
    + (set.jobGroup ? '<p class="hint">防具名は職業系統で変わる。装備名の自動判定が合わないときは「今」を手で直す。</p>' : '')
-   +'<table class="grid" style="margin-top:6px"><thead><tr><th>部位</th><th>装備（複数あるものは1つ）</th>'
+   +'<div class="scrollx"><table class="grid" style="margin-top:6px"><thead><tr><th>部位</th><th>装備（複数あるものは1つ）</th>'
    +'<th>今着けている</th><th>換装後に着ける</th></tr></thead><tbody>'
    + set.slots.map((s,i)=>'<tr><td>'+esc(SET_SLOT[s.slot]||s.slot)+'</td><td>'+esc(s.items.join(' / '))+'</td>'
       +'<td><input type="checkbox" data-sw="now" data-i="'+i+'"'+(now[i]?' checked':'')+(auto[i]?' disabled':'')+'>'
       + (auto[i] ? ' <span class="sub" style="display:inline;color:var(--ok)">装備から</span>' : '')+'</td>'
       +'<td><input type="checkbox" data-sw="aft" data-i="'+i+'"'+(aft[i]?' checked':'')+'></td></tr>').join('')
-   +'</tbody></table></div>'
+   +'</tbody></table></div></div>'
    +'<div class="sect"><h4>セット効果の増減：'+nb+' / '+set.max+' → '+na+' / '+set.max+'</h4>'
-   +'<table class="grid"><thead><tr><th class="num">段階</th><th>追加される効果</th><th>今</th><th>換装後</th>'
+   +'<div class="scrollx"><table class="grid"><thead><tr><th class="num">段階</th><th>追加される効果</th><th>今</th><th>換装後</th>'
    +'<th class="num">増減（最終ダメ換算）</th></tr></thead><tbody>'+tb
    +'<tr><td colspan="4"><b>セット効果の合計</b>　今 '+p2(nowV)+' → 換装後 '+p2(aftV)+'</td>'
-   +'<td class="num"><b>'+p2(total)+'</b></td></tr></tbody></table>'
+   +'<td class="num"><b>'+p2(total)+'</b></td></tr></tbody></table></div>'
    +'<p class="hint">薄い灰色の効果（HP・防御力など）は換算していない。全ステは主ステ・サブステの両方に換算。'
    +'セット効果は段階ごとの追加分。ボスアクセサリセットは3・5・7・9セットだけ効果がある。'
    +'数値は画像の書き起こしで、韓国namu wikiの各セットのページと突き合わせ済み（ヴェラッド・ルートアビスを除く）。</p></div>'
@@ -4460,7 +4473,14 @@ function renderNeed(set, setDeltaFn){
   host.querySelectorAll('[data-sfl]').forEach(i=> i.onchange = ()=>{
     ui.swapFlame = Object.assign({}, flame); ui.swapFlame[i.dataset.sfl] = +i.value||0; redo(); });
 }
+/* 狭い画面で、開いた行の詳細を「表の見えている幅」に収めるための値(CSS の --gw)。 */
+function syncGridWidth(){
+  const w = $('gridwrap').clientWidth;
+  if(w > 0) document.documentElement.style.setProperty('--gw', w+'px');
+}
+window.addEventListener('resize', syncGridWidth);
 function renderAll(){
+  syncGridWidth();
   renderChars(); renderMode(); renderBar();
   const sw = S.ui.mode==='swap';
   ['tools','gridwrap','gridfoot'].forEach(id=>{ $(id).style.display = sw ? 'none' : ''; });
