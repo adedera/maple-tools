@@ -3188,7 +3188,6 @@ function potTable(ch, slotKey, it){
   rows.sort((x,y)=> (cubeOn(y.c)-cubeOn(x.c)) || (y.eff-x.eff));
   const cur = sumLines(it.pot, ch.conv);
   return '<div class="dsec"><p class="cap">潜在 — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
-    + (slotKey==='hat' ? ctNote() : '')
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
     + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
@@ -3243,7 +3242,6 @@ function addTable(ch, slotKey, it){
   rows.sort((x,y)=> (cubeOn(y.c)-cubeOn(x.c)) || (y.eff-x.eff));
   const cur = sumLines(it.add, ch.conv);
   return '<div class="dsec"><p class="cap">アディ — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
-    + (slotKey==='hat' ? ctNote() : '')
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
     + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
