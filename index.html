@@ -220,9 +220,9 @@ table.mini th{font-size:10px;color:var(--faint);text-align:left;padding:4px 6px;
 table.mini th.num{text-align:right}
 table.mini td{padding:4px 6px;border-bottom:1px solid var(--line2)}
 table.mini tr:last-child td{border:0}
-/* 1列目(キューブ名・炎の名前)は折り返さない。はみ出す分は .scrollx が横に流す。 */
-table.mini th:first-child,table.mini td:first-child{white-space:nowrap}
-table.mini td:first-child .sub{white-space:nowrap}
+/* 1列目(キューブ名・炎の名前)は幅が足りないとき折り返す。それでも足りない分は .scrollx が横に流す。 */
+table.mini th:first-child,table.mini td:first-child{min-width:5.5em}
+table.mini th.hit{white-space:normal;min-width:5em}
 .scrollx{overflow-x:auto}
 .cap{font-size:10px;color:var(--faint);letter-spacing:.05em;margin:0 0 5px;font-weight:700}
 
@@ -2092,6 +2092,24 @@ function cnt(n){
   if(n>=1e4) return Math.round(n/1e3).toLocaleString('ja-JP')+'千個';
   return Math.round(n).toLocaleString('ja-JP')+'個';
 }
+/* 「平均の1〜3倍回したとき、1回でも当たる確率」 1-(1-p)^N。N は平均回数(1/p)の倍数を切り上げた整数。 */
+const HIT_MULT = [1,2,3];
+function hitProb(p, n){
+  if(!(p>0) || !(n>0)) return 0;
+  if(p>=1) return 1;
+  return -Math.expm1(n*Math.log1p(-p));
+}
+function hitHead(unit){
+  return HIT_MULT.map(k=>'<th class="num hit" title="平均回数の'+k+'倍だけ回して、1回でも成功する確率">'+k+'倍回して当たる確率</th>').join('');
+}
+function hitCells(p, unit){
+  return HIT_MULT.map(k=>{
+    if(!(p>0)) return '<td class="num">—</td>';
+    const n = Math.max(1, Math.ceil(k/p)), h = hitProb(p, n);
+    const t = h<1e-9 ? 'ほぼ0' : h>=1-1e-9 ? 'ほぼ確実' : h>=0.9995 ? '99.9%超' : pct(h);
+    return '<td class="num">'+t+'<span class="sub">'+cnt(n).replace('個',unit)+'</span></td>';
+  }).join('');
+}
 function parseMel(s){
   s = String(s).trim().replace(/[,\s]/g,'');
   const m = s.match(/^([\d.]+)\s*([gGbBmM億万]?)/); if(!m) return 0;
@@ -3196,7 +3214,7 @@ function potTable(ch, slotKey, it){
   const cur = sumLines(it.pot, ch.conv);
   return '<div class="dsec"><p class="cap">潜在 — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
-    + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
+    + '<th class="num">1回で超える確率</th><th class="num">平均回数</th>' + hitHead('回') + '<th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
     + rows.map(r=>'<tr><td'+(cubeOn(r.c)?'':' style="color:var(--faint)"')+'>'+esc(r.c.n)
       + ((!cubeOn(r.c) || r.a.up>0)
@@ -3206,12 +3224,13 @@ function potTable(ch, slotKey, it){
       + '<td class="num">'+(r.a.p>0?pct(r.a.p):'—')+'</td>'
       + '<td class="num">'+(r.a.p>0?(cnt(1/r.a.p).replace('個','回')
           +'<span class="sub">中央 '+cnt(medTries(r.a.p)).replace('個','回')+'</span>'):'—')+'</td>'
+      + hitCells(r.a.p, '回')
       + '<td class="num">'+(isFinite(r.cost)?mel(r.cost):'—')+'</td>'
       + '<td class="num gain">'+(r.a.p>0?p2(r.a.gain):'—')+'</td>'
       + '<td class="num eff">'+(r.eff?p2(r.eff):'—')+'</td></tr>').join('')
     + '</tbody></table></div>'
     + (it.lv>=250 && ['weapon','sub','emblem'].indexOf(slotKey)>=0 ? '<p class="hint" style="color:var(--warn)">Lv250の武器系は、ダメージ%・防御無視・クリ率・アディのボスダメが未確認のため補正していない。</p>' : '')
-    + '<p class="hint">排出率は公開スプレッドシート「潜在能力排出率まとめ」の ver4.17〜 の値（上潜在のみ）。必要レベルに届かない能力は除いて割り直している。</p></div>';
+    + '<p class="hint">「◯倍回して当たる確率」は、平均回数の◯倍（下に回数）だけ回して1回でも成功する確率。</p><p class="hint">排出率は公開スプレッドシート「潜在能力排出率まとめ」の ver4.17〜 の値（上潜在のみ）。必要レベルに届かない能力は除いて割り直している。</p></div>';
 }
 
 /* その入力欄を描き直し後に拾い直すための CSS セレクタ */
@@ -3250,7 +3269,7 @@ function addTable(ch, slotKey, it){
   const cur = sumLines(it.add, ch.conv);
   return '<div class="dsec"><p class="cap">アディ — 今を超えるまで回す場合（今 '+p2(cur)+'）</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>キューブ</th><th class="num">1個</th>'
-    + '<th class="num">1回で超える確率</th><th class="num">平均回数</th><th class="num">かかるメル</th>'
+    + '<th class="num">1回で超える確率</th><th class="num">平均回数</th>' + hitHead('回') + '<th class="num">かかるメル</th>'
     + '<th class="num">成功時</th><th class="num">1Gあたり</th></tr></thead><tbody>'
     + rows.map(r=>'<tr><td'+(cubeOn(r.c)?'':' style="color:var(--faint)"')+'>'+esc(r.c.n)
       + ((!cubeOn(r.c) || r.a.up>0)
@@ -3260,11 +3279,12 @@ function addTable(ch, slotKey, it){
       + '<td class="num">'+(r.a.p>0?pct(r.a.p):'—')+'</td>'
       + '<td class="num">'+(r.a.p>0?(cnt(1/r.a.p).replace('個','回')
           +'<span class="sub">中央 '+cnt(medTries(r.a.p)).replace('個','回')+'</span>'):'—')+'</td>'
+      + hitCells(r.a.p, '回')
       + '<td class="num">'+(isFinite(r.cost)?mel(r.cost):'—')+'</td>'
       + '<td class="num gain">'+(r.a.p>0?p2(r.a.gain):'—')+'</td>'
       + '<td class="num eff">'+(r.eff?p2(r.eff):'—')+'</td></tr>').join('')
     + '</tbody></table></div>'
-    + '<p class="hint">排出率はアディ専用の公開スプレッドシート（ver4.17〜）より。'
+    + '<p class="hint">「◯倍回して当たる確率」は、平均回数の◯倍（下に回数）だけ回して1回でも成功する確率。</p><p class="hint">排出率はアディ専用の公開スプレッドシート（ver4.17〜）より。'
     + '「キャラクター基準9レベル当たり」の行は、左の設定のキャラクターレベルで計算している。</p></div>';
 }
 /* 炎ごとの見込み。メルで買えるものは費用、イベント入手のものは個数で見る。 */
@@ -3290,7 +3310,7 @@ function flameTable(ch, slotKey, it){
     + '　／　上限 <b>'+p2(best)+'</b>　／　伸びしろ <b style="color:'+(room<0.3?'var(--warn)':'var(--ok)')+'">'+p2(room)+'</b>'
     + (room<0.3 ? '　上限に近いので、超えるのはかなり難しい' : '') + '</p>'
     + '<div class="scrollx"><table class="mini"><thead><tr><th>炎</th><th class="num">1個で超える確率</th>'
-    + '<th class="num">平均個数</th><th class="num">かかるメル</th><th class="num">成功時</th>'
+    + '<th class="num">平均個数</th>' + hitHead('個') + '<th class="num">かかるメル</th><th class="num">成功時</th>'
     + '<th class="num">1Gあたり</th><th class="num">手持ちで届く</th></tr></thead><tbody>'
     + rows.map(r=>'<tr'+(flameOn(r.f)?'':' style="opacity:.5"')+'><td>'+esc(r.f.n)
       + (flameOn(r.f)?'':'<span class="sub">使わない設定</span>')
@@ -3298,6 +3318,7 @@ function flameTable(ch, slotKey, it){
       + '<td class="num">'+(r.a.p>0?pct(r.a.p):'—')+'</td>'
       + '<td class="num"'+(r.f.mel?'':' style="color:var(--accent);font-weight:700"')+'>'
         +(r.a.p>0?(cnt(1/r.a.p)+'<span class="sub" style="font-weight:400">中央 '+cnt(medTries(r.a.p))+'</span>'):'—')+'</td>'
+      + hitCells(r.a.p, '個')
       + '<td class="num">'+(r.cost?mel(r.cost):'—')+'</td>'
       + '<td class="num gain">'+(r.a.p>0?p2(r.a.gain):'—')+'</td>'
       + '<td class="num eff">'+(r.eff?p2(r.eff):'—')+'</td>'
@@ -3305,7 +3326,7 @@ function flameTable(ch, slotKey, it){
       + '</tr>').join('')
     + '</tbody></table></div>'
     + '<p class="hint">'+(it.isBoss?'ボス装備なので4行つき、段階が+2される。':'ボス装備ではないので行数は 1個40% / 2個40% / 3個16% / 4個4%。')
-    + ' 黒い・深淵はイベント入手なのでメルの欄は出ない。手持ちの個数は左の「値段と確率」で入れる。</p>'
+    + ' 「◯倍回して当たる確率」は、平均個数の◯倍（下に個数）だけ使って1回でも成功する確率。 黒い・深淵はイベント入手なのでメルの欄は出ない。手持ちの個数は左の「値段と確率」で入れる。</p>'
     + '<p class="hint">確率は<a href="https://maplestory.nexon.com/Guide/OtherProbability/game/gameAddOption" target="_blank" rel="noopener">韓国公式の確率公開ページ</a>より。'
     + '値の式はジェネシス武器の実例（Tier4〜7で+106/+146/+192/+246）と一致を確認済み。</p></div>';
 }
