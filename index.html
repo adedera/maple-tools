@@ -235,6 +235,18 @@ table.mini th.hit{white-space:normal;min-width:5em}
 .alert .ic{color:var(--warn);font-weight:700;font-family:var(--mono);flex:none}
 .alert.bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
 .empty{font-size:12px;color:var(--faint);padding:18px 14px;text-align:center}
+.start{max-width:560px;margin:0 auto;padding:22px 18px 26px}
+.start h3{margin:0 0 12px;font-size:13px;color:var(--accent);letter-spacing:.04em}
+.start ol{margin:0;padding:0;list-style:none;counter-reset:st;display:flex;flex-direction:column;gap:12px}
+.start li{counter-increment:st;position:relative;padding-left:30px;font-size:12.5px;line-height:1.6;color:var(--dim)}
+.start li::before{content:counter(st);position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:50%;
+  background:var(--panel2);border:1px solid var(--line);color:var(--accent);font-weight:700;font-size:11px;
+  display:flex;align-items:center;justify-content:center}
+.start li b{display:block;color:var(--fg,inherit)}
+.start li span,.start .alt span{display:block;font-size:11px;color:var(--faint)}
+.start .go{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.start .alt{margin:18px 0 0;padding-top:12px;border-top:1px dashed var(--line);font-size:12px;color:var(--dim)}
+.start .alt .btn{margin-left:4px}
 
 /* ダイアログ(設定・追加・★表) */
 dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:12px;
@@ -2382,7 +2394,16 @@ function renderGrid(){
     ? '<thead>'+head+'</thead><tbody>'+body+'</tbody>'
     : '';
   $('gridfoot').innerHTML = list.length ? '' :
-    '<p class="empty">まだ装備がない。右上の「装備を追加」か「プリセット」から登録する。</p>';
+    '<div class="start"><h3>はじめに（まずは3ステップ）</h3><ol>'
+    +'<li><b>職業と主ステータスを選ぶ</b><span>左の「キャラと換算」。潜在の確率と換算係数に使う。</span></li>'
+    +'<li><b>装備を入れる</b><span>名前とレベルだけ先に入れておく。</span>'
+      +'<div class="go"><button class="btn pri" id="st-preset">まとめて入れる</button>'
+      +'<button class="btn" id="st-add">装備を1つずつ追加</button></div></li>'
+    +'<li><b>行を押して開き、★・潜在・アディ・転生を入れる</b>'
+      +'<span>入れた分だけ「次の一手」が出る。ゲーム画面のスクショを貼っても読める。</span></li></ol>'
+    +'<p class="alt">まず動きを見たいだけなら &rarr; <button class="btn" id="st-sample">サンプルキャラを追加</button>'
+    +'<span>装備名も数値も架空。通常のキャラとして増えるだけで、「削除」で消せる。</span></p></div>';
+  if($('st-preset')){ $('st-preset').onclick = openPreset; $('st-add').onclick = openAdd; $('st-sample').onclick = addSample; }
   if(bud>0 && sumC>0)
     $('gridfoot').innerHTML = '<p class="hint" style="padding:10px 14px 12px">予算 '+mel(bud)
       +' のうち '+mel(sumC)+' を使って、最終ダメ換算 <b style="color:var(--ok)">'+p2(sumG)+'</b> 伸びる見込み。'
@@ -2609,7 +2630,7 @@ function growthLadder(ch, group, lv, cube, isAdd, from, cur, rungs){
 
 /* キューブ名の短縮(表の小さい字用) */
 function cubeShort(c){ return c.n.replace('ショナルキューブ','').replace('キューブ',''); }
-function growthPanel(sl, it, isAdd){
+function growthPanel(sl, it, isAdd, probe){
   const ch = C();
   const group = isAdd ? ADD_GROUP[sl.k] : POT_GROUP[sl.k];
   const grade = isAdd ? it.addGrade : it.potGrade;
@@ -2745,6 +2766,8 @@ function growthPanel(sl, it, isAdd){
     rows.push({L, X, cells, pick, ok:!!best,
       eff: best ? (X-cur)/(best[0]/1e9) : 0});
   });
+  /* テスト用: 費用の中身を外に渡す(挙動は変えない)。換装③の potBuildCost と食い違っていないかを test_gear.js が見る */
+  if(probe){ probe.route = route; probe.rows = rows; probe.heads = heads; probe.cubes = cubes; probe.upc = upc; }
   /* コスパ最良の目標(総額あたりの伸びが最大)と、ひとつ前の目標からの追加分の効率 */
   let rec = null;
   rows.forEach((r,i)=>{
@@ -3854,6 +3877,32 @@ function renderSetData(){
 /* ============================================================
    追加・プリセット
    ============================================================ */
+/* 初見向けのサンプル。名前もステータスも架空。通常のキャラとして足すだけで、消すときは「削除」。
+   すでにサンプルがあれば、足さずにそれへ切り替える。 */
+const SAMPLE_GEAR = [
+  // 枠, 名前, Lv, ★, 潜在の等級, 潜在, アディの等級, アディ, 転生
+  ['weapon','サンプルのブレード',200,17,'レジェンダリー',[['atkPct',12],['atkPct',9],['bossDmg',30]],'ユニーク',[['atk',10],['atk',7]],{atk:60}],
+  ['hat','サンプルの帽子',250,18,'レジェンダリー',[['mainStatPct',9],['mainStatPct',9],['allStatPct',7]],'ユニーク',[['mainStat',24],['atk',7]],{mainStat:110,allStatPct:5}],
+  ['top','サンプルの上着',250,15,'エピック',[['mainStatPct',6],['mainStatPct',6],['mainStatPct',3]],'レア',[['mainStat',18]],{mainStat:80}],
+  ['glove','サンプルの手袋',200,12,'レジェンダリー',[['critDmg',3],['mainStatPct',9],['mainStatPct',7]],'なし',[],{}],
+  ['shoes','サンプルの靴',200,17,'ユニーク',[['mainStatPct',7],['mainStatPct',7],['allStatPct',4]],'なし',[],{mainStat:70}],
+  ['cape','サンプルのマント',200,15,'エピック',[['mainStatPct',6],['mainStatPct',6]],'なし',[],{}],
+  ['ring1','サンプルの指輪',200,0,'レジェンダリー',[['mainStatPct',9],['allStatPct',7],['mainStatPct',9]],'なし',[],{}],
+  ['pend1','サンプルのペンダント',200,17,'ユニーク',[['mainStatPct',7],['mainStatPct',7],['mainStatPct',4]],'エピック',[['mainStat',20]],{mainStat:60,allStatPct:3}],
+  ['ear','サンプルのイヤリング',200,15,'エピック',[['mainStatPct',6],['allStatPct',4]],'なし',[],{}]
+];
+function addSample(){
+  const had = S.chars.find(c=>c.sample);
+  if(had){ S.active = had.id; S.ui.open = null; POT_MEMO.clear(); save(); renderAll(); return; }
+  const ch = newChar('サンプル（架空の装備）'); ch.sample = true;
+  SAMPLE_GEAR.forEach(([k,nm,lv,star,pg,pot,ag,add,fl])=>{
+    const it = newItem(k, nm, lv);
+    it.star = star; it.potGrade = pg; it.pot = pot.map(([t,v])=>({t:t,v:v}));
+    it.addGrade = ag; it.add = add.map(([t,v])=>({t:t,v:v}));
+    it.flame = Object.assign(newFlame(), fl);
+    ch.gear[k] = it; });
+  S.chars.push(ch); S.active = ch.id; S.ui.open = null; POT_MEMO.clear(); save(); renderAll();
+}
 function openAdd(){
   const ch = C();
   $('dlg2-t').textContent = '装備を追加';
