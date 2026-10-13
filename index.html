@@ -3887,7 +3887,8 @@ function renderSwap(){
          + (n ? ' <span style="opacity:.75;font-weight:400">'+n+'/'+s.max+'</span>' : '')+'</button>'; }).join('')
    +'</div>'
    +'<p class="hint" style="margin-top:0">登録済みの装備の名前から「今着けている」を自動で入れる（名前が素体表と合うもの）。'
-   +'タブの数字は、いま着けている数。合わないときは、装備名を候補から選び直すか、手でチェックする。</p>'
+   +'タブの数字は、いま着けている数。合わないときは、装備名を候補から選び直すか、手でチェックする。'
+   +'「② 必要な強化」では、比べている部位は換装後に着ける前提で自動計算する（ここで先にチェックしなくてよい）。他の部位の換装後チェックはそのまま反映される。</p>'
    + (set.jmsOnly ? '<p class="hint">日本版のみのセット。韓国版には無いので、韓国wikiでの裏取りはできていない（画像が根拠）。</p>' : '')
    + (set.jobGroup ? '<p class="hint">防具名は職業系統で変わる。装備名の自動判定が合わないときは「今」を手で直す。</p>' : '')
    +'<table class="grid" style="margin-top:6px"><thead><tr><th>部位</th><th>装備（複数あるものは1つ）</th>'
@@ -3919,7 +3920,12 @@ function renderSwap(){
     if(!m[sid] || Array.isArray(m[sid])) m[sid] = {};
     m[sid][+c.dataset.i] = c.checked;
     save(); renderSwap(); });
-  renderNeed(set, total);
+  // ②③用: 部位 i を換装先にした場合（①の換装後チェックのうち、その部位だけ必ずON）のセット効果の増減
+  renderNeed(set, i=>{
+    const a2 = aft.slice(); if(i>=0) a2[i] = true;
+    const n2 = a2.filter(Boolean).length;
+    return tiers.reduce((a,t)=> a + (t<=n2 ? setConvVal(set.tiers[t], ch.conv) : 0) - (t<=nb ? setConvVal(set.tiers[t], ch.conv) : 0), 0);
+  });
 }
 
 /* ============================================================
@@ -4110,7 +4116,7 @@ function needCost(x){
     + '<br>「今の装備に並ぶ」必要が無い行（素体＋★だけで超える）には、潜在・アディ・転生の費用を足していない。'
     + '</p></div>';
 }
-function renderNeed(set, setDelta){
+function renderNeed(set, setDeltaFn){
   const host = $('swneed'), ch = C(), conv = ch.conv; if(!host) return;
   const ui = S.ui;
   const costHost = $('swcost');
@@ -4126,6 +4132,8 @@ function renderNeed(set, setDelta){
   }
   const o = opts.find(x=>x.gk===ui.swapCur) || opts[0];
   const gk = o.gk, sl = SLMAP[gk], it = ch.gear[gk];
+  // 比べている部位は「換装後に着ける」前提で、セット効果の増減を出す（①の換装後チェックを先に付けなくてよい）
+  const setDelta = setDeltaFn(set.slots.findIndex(s=> s.slot===o.sk));
   const list = BASE_DATA ? BASE_DATA.items.filter(b=> b.set===set.id && b.slot===o.sk && baseFits(b,ch)) : [];
   if(!list.length){
     host.innerHTML = html + '<p class="hint">この部位の素体データが無い（職業に合うものが無い）。</p></div>';
@@ -4200,7 +4208,7 @@ function renderNeed(set, setDelta){
     +'</select></label>'
     +'<label class="f"><span>試す★（カンマ区切り、'+(sl.sf?'上限'+capS:'この部位はスタフォなし')+'）</span>'
       +'<input type="text" id="swn-stars" value="'+esc(sl.sf ? stars.join(',') : '')+'"'+(sl.sf?'':' disabled')+'></label>'
-    +'<label class="chk" style="align-self:end"><input type="checkbox" id="swn-set"'+(incSet?' checked':'')+'>セット効果の増減を含める（'+p2(setDelta)+'）</label>'
+    +'<label class="chk" style="align-self:end"><input type="checkbox" id="swn-set"'+(incSet?' checked':'')+'>セット効果の増減を含める（この部位を換装先にした分 '+p2(setDelta)+'）</label>'
     +'</div>'
     +'<p class="cap">今の装備の素体（'+(baseKnown ? (saved ? '手入力' : '表から自動：'+esc(autoB.name)) : '<span style="color:var(--warn)">表に無い。手で入れる</span>')+'）</p>'
     +'<div class="grid2">'
@@ -4225,7 +4233,7 @@ function renderNeed(set, setDelta){
     +'防御率無視・ボスダメは線形の近似。</p></div>';
   if(costHost) costHost.innerHTML = costHtml;
 
-  const redo = ()=>{ save(); renderNeed(set, setDelta); };
+  const redo = ()=>{ save(); renderNeed(set, setDeltaFn); };
   $('swn-cur').onchange = ()=>{ ui.swapCur = $('swn-cur').value; ui.swapTgt = ''; ui.swapFlame = null; redo(); };
   $('swn-tgt').onchange = ()=>{ ui.swapTgt = $('swn-tgt').value; redo(); };
   if($('swn-stars')) $('swn-stars').onchange = ()=>{ ui.swapStars = $('swn-stars').value; redo(); };
